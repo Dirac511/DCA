@@ -28,6 +28,9 @@ TEST_F(DcaParametersTest, DefaultValues) {
   EXPECT_EQ(1., pars_.get_self_energy_mixing_factor());
   EXPECT_EQ(dca::phys::SelfEnergyMixingScheme::LINEAR, pars_.get_self_energy_mixing_scheme());
   EXPECT_EQ(8, pars_.get_self_energy_mixing_history_size());
+  EXPECT_EQ(1.e-8, pars_.get_self_energy_mixing_regularization());
+  EXPECT_EQ(10., pars_.get_self_energy_mixing_max_coefficient());
+  EXPECT_EQ(20, pars_.get_self_energy_mixing_residual_weight_cutoff());
   EXPECT_EQ(std::vector<int>{0}, pars_.get_interacting_orbitals());
   EXPECT_FALSE(pars_.do_finite_size_qmc());
   EXPECT_EQ(0, pars_.get_k_mesh_recursion());
@@ -55,6 +58,9 @@ TEST_F(DcaParametersTest, ReadAll) {
   EXPECT_EQ(0.5, pars_.get_self_energy_mixing_factor());
   EXPECT_EQ(dca::phys::SelfEnergyMixingScheme::ANDERSON, pars_.get_self_energy_mixing_scheme());
   EXPECT_EQ(5, pars_.get_self_energy_mixing_history_size());
+  EXPECT_EQ(1.e-6, pars_.get_self_energy_mixing_regularization());
+  EXPECT_EQ(5., pars_.get_self_energy_mixing_max_coefficient());
+  EXPECT_EQ(3, pars_.get_self_energy_mixing_residual_weight_cutoff());
   EXPECT_EQ(interacting_orbitals_check, pars_.get_interacting_orbitals());
   EXPECT_FALSE(pars_.do_finite_size_qmc());
   EXPECT_EQ(3, pars_.get_k_mesh_recursion());

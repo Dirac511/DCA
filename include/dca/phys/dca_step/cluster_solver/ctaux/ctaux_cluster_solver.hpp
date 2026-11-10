@@ -126,6 +126,14 @@ private:
 
   double mix_self_energy(double alpha);
 
+  // Norms of the fixed-point residual Sigma_QMC - Sigma_cg. They are evaluated before mixing so
+  // that the convergence criterion does not depend on the mixing scheme.
+  double self_energy_residual_l2_norm() const;
+  double self_energy_residual_infty_norm() const;
+
+  // Builds the frequency weights used by the Anderson mixer to define its residual norm.
+  void initialize_self_energy_mixing_weights();
+
 protected:
   Parameters& parameters_;
   Data& data_;
@@ -147,6 +155,7 @@ private:
   func::function<std::complex<double>, NuNuKClusterWDmn> Sigma_new_;
 
   SelfEnergyMixer self_energy_mixer_;
+  bool self_energy_mixing_weights_initialized_ = false;
 
   double accumulated_sign_;
   func::function<std::complex<double>, NuNuRClusterWDmn> M_r_w_;
@@ -206,8 +215,19 @@ void CtauxClusterSolver<device_t, Parameters, Data>::initialize(int dca_iteratio
 
   if (dca_iteration == 0)
     self_energy_mixer_.reset();
-  self_energy_mixer_.configure(parameters_.get_self_energy_mixing_factor(),
-                               parameters_.get_self_energy_mixing_history_size());
+
+  SelfEnergyMixer::Config mixing_config;
+  mixing_config.alpha = parameters_.get_self_energy_mixing_factor();
+  mixing_config.max_history = parameters_.get_self_energy_mixing_history_size();
+  mixing_config.regularization = parameters_.get_self_energy_mixing_regularization();
+  mixing_config.max_coefficient = parameters_.get_self_energy_mixing_max_coefficient();
+  self_energy_mixer_.configure(mixing_config);
+
+  if (parameters_.get_self_energy_mixing_scheme() == SelfEnergyMixingScheme::ANDERSON &&
+      !self_energy_mixing_weights_initialized_) {
+    initialize_self_energy_mixing_weights();
+    self_energy_mixing_weights_initialized_ = true;
+  }
 
   accumulator_.initialize(dca_iteration_);
 
@@ -280,7 +300,7 @@ double CtauxClusterSolver<device_t, Parameters, Data>::finalize(dca_info_struct_
     for (int j = 0; j < KClusterDmn::dmn_size(); j++) {
       std::vector<double> x;
       for (int l = 0; l < w::dmn_size() / 4; l++)
-        x.push_back(real(data_.Sigma(i, i, j, l)));
+        x.push_back(real(Sigma_new_(i, i, j, l)));
 
       dca_info_struct.Sigma_zero_moment(i, j, dca_iteration_) =
           math::statistics::util::mean(x);  // real(data_.Sigma(i,i,j,0));
@@ -630,6 +650,12 @@ double CtauxClusterSolver<device_t, Parameters, Data>::compute_S_k_w_from_G_k_w(
   if (parameters_.adjust_self_energy_for_double_counting())
     adjust_self_energy_for_double_counting();
 
+  // Keep the un-mixed QMC self-energy. finalize() derives Sigma_zero_moment and
+  // standard_deviation from it; earlier those diagnostics read data_.Sigma after the mixing and
+  // therefore described the extrapolated self-energy. Sigma_new_ used to be a member that was
+  // written to the output but never assigned.
+  Sigma_new_ = data_.Sigma;
+
   double L2_norm = mix_self_energy(alpha);
 
   return L2_norm;
@@ -796,6 +822,18 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
   symmetrize::execute(data_.Sigma, data_.H_symmetry);
   symmetrize::execute(data_.Sigma_cluster, data_.H_symmetry);
 
+  // The convergence criterion of the fixed-point iteration Sigma_cg -> Sigma_QMC is evaluated on
+  // the un-mixed quantities, so that its meaning does not depend on the mixing scheme:
+  //   now      L2 = || Sigma_QMC - Sigma_cg ||, i.e. the true residual r of the iteration.
+  //   earlier  L2 = || Sigma_mixed - Sigma_cg ||, where Sigma_mixed is the output of the mixer.
+  //            For LINEAR this is alpha * || r ||, and for ANDERSON it additionally contains the
+  //            extrapolation step sum_i c_i (x_i - x_m). The two schemes were therefore not
+  //            comparable, and ANDERSON could be reported as converged while r was still large.
+  // Consequently, with linear mixing the value reported now is a factor 1 / alpha larger than
+  // before, so the DCA::accuracy of an existing input file has to be re-calibrated.
+  const double L2_error = self_energy_residual_l2_norm();
+  const double error_infty_norm = self_energy_residual_infty_norm();
+
   if (parameters_.get_self_energy_mixing_scheme() == SelfEnergyMixingScheme::LINEAR) {
     for (int l = 0; l < data_.Sigma.size(); l++)
       data_.Sigma(l) = alpha * data_.Sigma(l) + (1. - alpha) * data_.Sigma_cluster(l);
@@ -815,48 +853,127 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
     // (see the parallel contract above), but printing must be rank-guarded.
     if (concurrency_.id() == concurrency_.first()) {
       const auto& c = self_energy_mixer_.lastCoefficients();
-      std::cout << "\n\t\t Anderson mixing: m = " << self_energy_mixer_.historySize();
+      std::cout << "\n\t\t Anderson mixing: m = " << self_energy_mixer_.historySize()
+                << ", |r| = " << self_energy_mixer_.lastResidualNorm()
+                << ", |sum c_i r_i| = " << self_energy_mixer_.lastCombinedResidualNorm();
       if (self_energy_mixer_.lastFellBack())
-        std::cout << " (linear-mixing fallback)";
-      std::cout << ", c = [";
+        std::cout << (self_energy_mixer_.historySize() == 1 ? " (warm-up, linear step)"
+                                                           : " (fallback, linear step)");
+      if (self_energy_mixer_.lastCoefficientsClipped())
+        std::cout << " (coefficients clipped)";
+      std::cout << "\n\t\t c = [";
       for (std::size_t j = 0; j < c.size(); ++j)
         std::cout << (j == 0 ? "" : ", ") << c[j];
       std::cout << "]" << std::endl;
     }
   }
 
-  int offset = std::min(1, w::dmn_size() / 2);
-
-  double L2_norm = 0;
-  double diff_L2_norm = 0.;
-  for (int w_ind = w::dmn_size() / 2; w_ind < w::dmn_size() / 2 + offset; w_ind++) {
-    for (int k_ind = 0; k_ind < KClusterDmn::dmn_size(); k_ind++) {
-      for (int l1 = 0; l1 < b::dmn_size() * s::dmn_size(); l1++) {
-        L2_norm += std::pow(std::abs(data_.Sigma(l1, l1, k_ind, w_ind)), 2);
-        diff_L2_norm += std::pow(
-            std::abs(data_.Sigma(l1, l1, k_ind, w_ind) - data_.Sigma_cluster(l1, l1, k_ind, w_ind)),
-            2);
-      }
-    }
-  }
-
-  double error_infty_norm = 0;
-  offset = std::min(10, w::dmn_size() / 2);
-  for (int w_ind = w::dmn_size() / 2; w_ind < w::dmn_size() / 2 + offset; w_ind++) {
-    for (int k_ind = 0; k_ind < KClusterDmn::dmn_size(); k_ind++) {
-      for (int l1 = 0; l1 < b::dmn_size() * s::dmn_size(); l1++) {
-        error_infty_norm = std::max(error_infty_norm, abs(data_.Sigma(l1, l1, k_ind, w_ind) -
-                                                          data_.Sigma_cluster(l1, l1, k_ind, w_ind)));
-      }
-    }
-  }
-
-  double L2_error = std::sqrt(diff_L2_norm) / double(KClusterDmn::dmn_size());
   if (concurrency_.id() == concurrency_.first()) {
     std::cout << "\n\n\t\t |Sigma_QMC - Sigma_cg|_infty ~ " << error_infty_norm;
     std::cout << "\n\t\t |Sigma_QMC - Sigma_cg|_2 ~ " << L2_error << "\n\n";
   }
   return L2_error;
+}
+
+// L2 norm of the fixed-point residual Sigma_QMC - Sigma_cg, restricted to the intra-band diagonal
+// at the lowest Matsubara frequency. This is the quantity the DCA::accuracy criterion is based on.
+template <dca::linalg::DeviceType device_t, class Parameters, class Data>
+double CtauxClusterSolver<device_t, Parameters, Data>::self_energy_residual_l2_norm() const {
+  const int offset = std::min(1, w::dmn_size() / 2);
+
+  double diff_L2_norm = 0.;
+  for (int w_ind = w::dmn_size() / 2; w_ind < w::dmn_size() / 2 + offset; w_ind++)
+    for (int k_ind = 0; k_ind < KClusterDmn::dmn_size(); k_ind++)
+      for (int l1 = 0; l1 < b::dmn_size() * s::dmn_size(); l1++)
+        diff_L2_norm += std::norm(data_.Sigma(l1, l1, k_ind, w_ind) -
+                                  data_.Sigma_cluster(l1, l1, k_ind, w_ind));
+
+  return std::sqrt(diff_L2_norm) / double(KClusterDmn::dmn_size());
+}
+
+// Infinity norm of the fixed-point residual Sigma_QMC - Sigma_cg over the ten lowest Matsubara
+// frequencies.
+template <dca::linalg::DeviceType device_t, class Parameters, class Data>
+double CtauxClusterSolver<device_t, Parameters, Data>::self_energy_residual_infty_norm() const {
+  const int offset = std::min(10, w::dmn_size() / 2);
+
+  double error_infty_norm = 0.;
+  for (int w_ind = w::dmn_size() / 2; w_ind < w::dmn_size() / 2 + offset; w_ind++)
+    for (int k_ind = 0; k_ind < KClusterDmn::dmn_size(); k_ind++)
+      for (int l1 = 0; l1 < b::dmn_size() * s::dmn_size(); l1++)
+        error_infty_norm = std::max(error_infty_norm, std::abs(data_.Sigma(l1, l1, k_ind, w_ind) -
+                                                               data_.Sigma_cluster(l1, l1, k_ind,
+                                                                                   w_ind)));
+  return error_infty_norm;
+}
+
+// Builds the element weights of the norm in which the Anderson residual is minimized.
+//
+// Why a weighted norm: at high frequency Sigma = G0^-1 - G^-1 is a difference of two O(w)
+// quantities, so a relative error eps of G becomes an absolute error ~ w * eps of Sigma. The
+// high-frequency tail therefore carries the largest error, and -- being essentially constant from
+// one DCA iteration to the next -- also the least information about where the iteration should go.
+// The convergence criterion, in contrast, only looks at the lowest Matsubara frequencies.
+//
+//   earlier  every element had weight 1, so the coefficient solve was dominated by the tail.
+//   now      a soft window 1 / (1 + (w / w_c)^4): weight 1 at low frequency, below 1.e-2 for
+//            w > 3 w_c. Only the choice of the coefficients c_i is affected; the mixed
+//            self-energy still uses all frequencies.
+//
+// w_c is placed at the DCA::mixing-residual-weight-cutoff-th positive Matsubara frequency; a
+// cutoff of 0 restores the uniform norm used earlier.
+template <dca::linalg::DeviceType device_t, class Parameters, class Data>
+void CtauxClusterSolver<device_t, Parameters, Data>::initialize_self_energy_mixing_weights() {
+  const int n_w = w::dmn_size();
+  const int lowest_positive = n_w / 2;
+
+  // Number of positive Matsubara frequencies kept at (almost) full weight. A value of 0 disables
+  // the weighting and restores the uniform norm used before it was introduced.
+  const int cutoff = parameters_.get_self_energy_mixing_residual_weight_cutoff();
+
+  if (cutoff <= 0 || n_w < 4) {
+    self_energy_mixer_.clearResidualWeights();
+    if (concurrency_.id() == concurrency_.first() && cutoff > 0)
+      std::cout << "\n\t\t The cluster has too few Matsubara frequencies, the Anderson residual "
+                   "weights are not used.\n";
+    return;
+  }
+
+  const int max_offset = std::max(0, n_w - 1 - lowest_positive);
+  const int offset = std::min(cutoff, max_offset);
+  const double w_c = std::abs(w::get_elements()[lowest_positive + offset]);
+
+  if (concurrency_.id() == concurrency_.first()) {
+    std::cout << "\n\t\t Anderson residual weights: cutoff = " << offset
+              << " positive Matsubara frequencies, w_c = " << w_c;
+    if (max_offset > 0 && offset * 10 >= max_offset * 9)
+      std::cout << " (close to the highest frequency, the weights are almost uniform)";
+    std::cout << std::endl;
+  }
+
+  std::vector<double> weight_per_frequency(n_w, 1.);
+  if (w_c > 0.)
+    for (int w_ind = 0; w_ind < n_w; ++w_ind) {
+      const double ratio = std::abs(w::get_elements()[w_ind]) / w_c;
+      const double ratio_squared = ratio * ratio;
+      weight_per_frequency[w_ind] = 1. / (1. + ratio_squared * ratio_squared);
+    }
+
+  // Build the weights in the layout of the self-energy through the domain-aware accessor, so that
+  // no assumption about the internal ordering of the frequency index is needed.
+  func::function<std::complex<double>, NuNuKClusterWDmn> weight_function("self-energy-weights");
+  for (int i = 0; i < nu::dmn_size(); ++i)
+    for (int j = 0; j < nu::dmn_size(); ++j)
+      for (int k_ind = 0; k_ind < KClusterDmn::dmn_size(); ++k_ind)
+        for (int w_ind = 0; w_ind < n_w; ++w_ind)
+          weight_function(i, j, k_ind, w_ind) =
+              std::complex<double>(weight_per_frequency[w_ind], 0.);
+
+  std::vector<double> weights(weight_function.size());
+  for (std::size_t i = 0; i < weights.size(); ++i)
+    weights[i] = weight_function(static_cast<int>(i)).real();
+
+  self_energy_mixer_.setResidualWeights(std::move(weights));
 }
 
 template <dca::linalg::DeviceType device_t, class Parameters, class Data>

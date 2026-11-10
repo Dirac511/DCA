@@ -10,6 +10,7 @@
 #include "dca/phys/parameters/self_energy_mixing_scheme.hpp"
 
 #include <stdexcept>
+#include <string>
 
 namespace dca {
 namespace phys {
@@ -21,7 +22,8 @@ SelfEnergyMixingScheme stringToSelfEnergyMixingScheme(const std::string& str) {
   else if (str == "ANDERSON")
     return SelfEnergyMixingScheme::ANDERSON;
   else
-    throw(std::logic_error("Invalid self-energy mixing scheme."));
+    throw(std::logic_error("Invalid self-energy mixing scheme \"" + str +
+                           "\". Valid values are \"LINEAR\" and \"ANDERSON\"."));
 }
 
 std::string toString(const SelfEnergyMixingScheme scheme) {

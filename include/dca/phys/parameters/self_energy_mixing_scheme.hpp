@@ -19,6 +19,9 @@ namespace phys {
 
 // LINEAR:   Sigma^(n+1) = alpha * Sigma_QMC + (1 - alpha) * Sigma_cg
 // ANDERSON: Anderson/Pulay (DIIS) acceleration of the same fixed-point iteration.
+//
+// Note: only the CT-AUX cluster solver implements ANDERSON. The other solvers ignore the scheme
+// and keep mixing linearly.
 enum class SelfEnergyMixingScheme { LINEAR, ANDERSON };
 
 SelfEnergyMixingScheme stringToSelfEnergyMixingScheme(const std::string& str);
