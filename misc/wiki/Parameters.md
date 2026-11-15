@@ -289,7 +289,9 @@ Number of threads used in the HTS-solver.
             "initial-self-energy": "./T=0.5/dca.hdf5",
             "iterations": 3,
             "accuracy": 1.e-3,
-            "self-energy-mixing-factor": 0.5,
+            "self-energy-mixing-factor": 1.0,
+            "mixing-scheme": "ANDERSON",
+            "mixing-history-size": 3,
             "interacting-orbitals": [0],
 
             "do-finite-size-QMC": false,
