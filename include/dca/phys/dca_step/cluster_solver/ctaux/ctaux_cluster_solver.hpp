@@ -19,6 +19,7 @@
 #include <cmath>
 #include <complex>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -131,9 +132,6 @@ private:
   double self_energy_residual_l2_norm() const;
   double self_energy_residual_infty_norm() const;
 
-  // Builds the frequency weights used by the Anderson mixer to define its residual norm.
-  void initialize_self_energy_mixing_weights();
-
 protected:
   Parameters& parameters_;
   Data& data_;
@@ -153,9 +151,61 @@ private:
 
   func::function<std::complex<double>, NuNuKClusterWDmn> Sigma_old_;
   func::function<std::complex<double>, NuNuKClusterWDmn> Sigma_new_;
+  // Mixed self-energy with the smallest residual seen so far. When an iteration makes L2 grow
+  // again, this is the state that is written to the output instead of the rejected one.
+  func::function<std::complex<double>, NuNuKClusterWDmn> best_Sigma_;
+  // Un-mixed QMC quantities of the same iteration as best_Sigma_. finalize() derives
+  // Sigma_zero_moment and the error bars from them, so they have to be restored together with
+  // best_Sigma_, otherwise those diagnostics describe the rejected iteration.
+  func::function<std::complex<double>, NuNuKClusterWDmn> best_Sigma_new_;
+  func::function<std::complex<double>, NuNuKClusterWDmn> best_Sigma_stdv_;
+  func::function<std::complex<double>, NuNuKClusterWDmn> best_G_k_w_stdv_;
+  // Cluster Green function measured in the same iteration as best_Sigma_. It is overwritten by
+  // compute_G_k_w_from_M_r_w() in every iteration, so without this snapshot the output would pair
+  // the best self-energy with the QMC data of the iteration that was just rejected.
+  func::function<std::complex<double>, NuNuKClusterWDmn> best_G_k_w_;
+  func::function<std::complex<double>, NuNuRClusterWDmn> best_G_r_w_error_;
+  // Raw measurements and the previous-iteration self-energy of the saved iteration. They are
+  // overwritten in every iteration too, so restoring Sigma alone would not make everything written
+  // to the output belong to the saved iteration.
+  func::function<std::complex<double>, NuNuKClusterWDmn> best_Sigma_old_;
+  func::function<std::complex<double>, NuNuRClusterWDmn> best_M_r_w_;
+  func::function<std::complex<double>, NuNuRClusterWDmn> best_M_r_w_squared_;
 
   SelfEnergyMixer self_energy_mixer_;
-  bool self_energy_mixing_weights_initialized_ = false;
+
+  // L2 residual of the previous iteration, used to detect that the Anderson extrapolation started
+  // to increase it again, and the resulting stop request.
+  double previous_L2_error_ = 0.;
+  bool stop_requested_ = false;
+  // DCA iteration in which best_L2_error_ was measured, i.e. the iteration whose result is written
+  // to the output when the loop is stopped. -1 means no entry yet.
+  int best_dca_iteration_ = -1;
+  // Smallest residual seen so far. It is restored, together with the matching self-energy and
+  // diagnostics, when the loop is stopped.
+  double best_L2_error_ = std::numeric_limits<double>::infinity();
+  // Chemical potential that belongs to best_Sigma_, and the chemical potential of the iteration
+  // that is currently running. The DCA loop updates mu before every iteration, so restoring Sigma
+  // without restoring mu would pair the saved self-energy with the chemical potential of a later
+  // iteration and make the density and n(k) recomputed afterwards inconsistent with it.
+  double best_chemical_potential_ = 0.;
+  double chemical_potential_at_start_ = 0.;
+  // True if best_G_r_w_error_ holds a jackknife estimate. The estimate is only available for the
+  // last DCA iteration, so most saved iterations have none; restoring an empty snapshot would
+  // overwrite a valid error bar with zeros.
+  bool best_has_error_bars_ = false;
+  // Average sign and average expansion order of the QMC run of this iteration and of the saved
+  // one. They are diagnostics of the QMC run, not derived from Sigma, so they need their own
+  // snapshots: the accumulator is reset in every iteration and cannot be restored. The saved
+  // values are reported in the stop message; the row of a rejected iteration is not written.
+  // Average sign of the QMC run of this iteration, reduced over all ranks in
+  // collect_measurements(). It is the one value used by the log message and the output file, so
+  // both report the same number regardless of which rank writes the file.
+  double average_sign_ = 1.;
+  double current_sign_ = 1.;
+  double current_expansion_order_ = 0.;
+  double best_sign_ = 1.;
+  double best_expansion_order_ = 0.;
 
   double accumulated_sign_;
   func::function<std::complex<double>, NuNuRClusterWDmn> M_r_w_;
@@ -185,6 +235,15 @@ CtauxClusterSolver<device_t, Parameters, Data>::CtauxClusterSolver(Parameters& p
 
       Sigma_old_("Self-Energy-n-1-iteration"),
       Sigma_new_("Self-Energy-n-0-iteration"),
+      best_Sigma_("Self-Energy-best-iteration"),
+      best_Sigma_new_("Self-Energy-best-iteration-QMC"),
+      best_Sigma_stdv_("Self-Energy-best-iteration-stddev"),
+      best_G_k_w_stdv_("G_k_w-best-iteration-stddev"),
+      best_G_k_w_("G_k_w-best-iteration"),
+      best_G_r_w_error_("G_r_w-best-iteration-error"),
+      best_Sigma_old_("Self-Energy-n-1-best-iteration"),
+      best_M_r_w_("M_r_w-best-iteration"),
+      best_M_r_w_squared_("M_r_w_squared-best-iteration"),
 
       M_r_w_("M_r_w"),
       M_r_w_squared_("M_r_w_squared"),
@@ -213,8 +272,17 @@ void CtauxClusterSolver<device_t, Parameters, Data>::initialize(int dca_iteratio
 
   Sigma_old_ = data_.Sigma;
 
-  if (dca_iteration == 0)
+  if (dca_iteration == 0) {
     self_energy_mixer_.reset();
+    previous_L2_error_ = 0.;
+    stop_requested_ = false;
+    best_L2_error_ = std::numeric_limits<double>::infinity();
+    best_dca_iteration_ = -1;
+  }
+
+  // The DCA loop has already updated mu for this iteration, so this is the value the QMC run and
+  // the mixing of this iteration use.
+  chemical_potential_at_start_ = parameters_.get_chemical_potential();
 
   SelfEnergyMixer::Config mixing_config;
   mixing_config.alpha = parameters_.get_self_energy_mixing_factor();
@@ -222,12 +290,6 @@ void CtauxClusterSolver<device_t, Parameters, Data>::initialize(int dca_iteratio
   mixing_config.regularization = parameters_.get_self_energy_mixing_regularization();
   mixing_config.max_coefficient = parameters_.get_self_energy_mixing_max_coefficient();
   self_energy_mixer_.configure(mixing_config);
-
-  if (parameters_.get_self_energy_mixing_scheme() == SelfEnergyMixingScheme::ANDERSON &&
-      !self_energy_mixing_weights_initialized_) {
-    initialize_self_energy_mixing_weights();
-    self_energy_mixing_weights_initialized_ = true;
-  }
 
   accumulator_.initialize(dca_iteration_);
 
@@ -294,56 +356,78 @@ double CtauxClusterSolver<device_t, Parameters, Data>::finalize(dca_info_struct_
   // FT<k_DCA,r_DCA>::execute(data_.G_k_w, data_.G_r_w);
   math::transform::FunctionTransform<KClusterDmn, RClusterDmn>::execute(data_.G_k_w, data_.G_r_w);
 
-  dca_info_struct.L2_Sigma_difference(dca_iteration_) = compute_S_k_w_from_G_k_w();
+  // The average sign and the average expansion order describe the QMC run of this iteration. They
+  // are evaluated before compute_S_k_w_from_G_k_w() because that call can stop the loop.
+  {
+    double total = 1.e-6, integral = 0;
 
-  for (int i = 0; i < b::dmn_size() * s::dmn_size(); i++) {
-    for (int j = 0; j < KClusterDmn::dmn_size(); j++) {
-      std::vector<double> x;
-      for (int l = 0; l < w::dmn_size() / 4; l++)
-        x.push_back(real(Sigma_new_(i, i, j, l)));
-
-      dca_info_struct.Sigma_zero_moment(i, j, dca_iteration_) =
-          math::statistics::util::mean(x);  // real(data_.Sigma(i,i,j,0));
-      dca_info_struct.standard_deviation(i, j, dca_iteration_) =
-          math::statistics::util::standard_deviation(x);
+    for (int l = 0; l < accumulator_.get_visited_expansion_order_k().size(); l++) {
+      total += accumulator_.get_visited_expansion_order_k()(l);
+      integral += accumulator_.get_visited_expansion_order_k()(l) * l;
     }
+
+    current_expansion_order_ = integral / total;
+    // Computed once over all ranks in collect_measurements(), which runs before this point.
+    current_sign_ = average_sign_;
   }
+
+  const double L2_Sigma_difference = compute_S_k_w_from_G_k_w();
 
   if (compute_jack_knife_ && parameters_.isAccumulatingG4()) {
     for (std::size_t channel = 0; channel < data_.get_G4_error().size(); ++channel)
       data_.get_G4_error()[channel] = concurrency_.jackknifeError(data_.get_G4()[channel], true);
   }
 
-  double total = 1.e-6, integral = 0;
+  // When the loop is stopped, only the saved (best) iteration is kept: the row of the rejected
+  // iteration and the rows of the iterations after the saved one are dropped, so that nothing is
+  // repeated and the last row of the output is the best result. The DCA loop skips its own
+  // per-iteration output as well when the solver returns the stop signal below.
+  if (!stop_requested_) {
+    dca_info_struct.L2_Sigma_difference(dca_iteration_) = L2_Sigma_difference;
 
-  for (int l = 0; l < accumulator_.get_visited_expansion_order_k().size(); l++) {
-    total += accumulator_.get_visited_expansion_order_k()(l);
-    integral += accumulator_.get_visited_expansion_order_k()(l) * l;
+    for (int i = 0; i < b::dmn_size() * s::dmn_size(); i++) {
+      for (int j = 0; j < KClusterDmn::dmn_size(); j++) {
+        std::vector<double> x;
+        for (int l = 0; l < w::dmn_size() / 4; l++)
+          x.push_back(real(Sigma_new_(i, i, j, l)));
+
+        dca_info_struct.Sigma_zero_moment(i, j, dca_iteration_) =
+            math::statistics::util::mean(x);  // real(data_.Sigma(i,i,j,0));
+        dca_info_struct.standard_deviation(i, j, dca_iteration_) =
+            math::statistics::util::standard_deviation(x);
+      }
+    }
+
+    dca_info_struct.average_expansion_order(dca_iteration_) = current_expansion_order_;
+    dca_info_struct.sign(dca_iteration_) = current_sign_;
+
+    dca_info_struct.thermalization_per_mpi_task(dca_iteration_) =
+        thermalization_time_ / double(concurrency_.number_of_processors());
+    dca_info_struct.MC_integration_per_mpi_task(dca_iteration_) =
+        mc_integration_time_ / double(concurrency_.number_of_processors());
+
+    dca_info_struct.times_per_mpi_task(dca_iteration_) =
+        total_time_ / double(concurrency_.number_of_processors());
+    dca_info_struct.Gflop_per_mpi_task(dca_iteration_) =
+        accumulator_.get_Gflop() / double(concurrency_.number_of_processors());
+
+    dca_info_struct.Gflops_per_mpi_task(dca_iteration_) =
+        dca_info_struct.Gflop_per_mpi_task(dca_iteration_) /
+        dca_info_struct.times_per_mpi_task(dca_iteration_);
   }
-
-  dca_info_struct.average_expansion_order(dca_iteration_) = integral / total;
-
-  dca_info_struct.sign(dca_iteration_) =
-      double(accumulator_.get_accumulated_sign()) / accumulator_.get_number_of_measurements();
-
-  dca_info_struct.thermalization_per_mpi_task(dca_iteration_) =
-      thermalization_time_ / double(concurrency_.number_of_processors());
-  dca_info_struct.MC_integration_per_mpi_task(dca_iteration_) =
-      mc_integration_time_ / double(concurrency_.number_of_processors());
-
-  dca_info_struct.times_per_mpi_task(dca_iteration_) =
-      total_time_ / double(concurrency_.number_of_processors());
-  dca_info_struct.Gflop_per_mpi_task(dca_iteration_) =
-      accumulator_.get_Gflop() / double(concurrency_.number_of_processors());
-
-  dca_info_struct.Gflops_per_mpi_task(dca_iteration_) =
-      dca_info_struct.Gflop_per_mpi_task(dca_iteration_) /
-      dca_info_struct.times_per_mpi_task(dca_iteration_);
+  else
+    dca_info_struct.clear_after(best_dca_iteration_);
 
   if (concurrency_.id() == concurrency_.first())
     std::cout << "\n\n\t CT-AUX Integrator has finalized \n" << std::endl;
 
-  return dca_info_struct.L2_Sigma_difference(dca_iteration_);
+  // A negative return value is the stop signal of the solver: an extrapolated step made the L2
+  // residual grow again, so further DCA iterations would only accumulate harmful extrapolations.
+  // The output was truncated to the saved iteration, so it ends with the best result.
+  if (stop_requested_)
+    return -1.;
+
+  return L2_Sigma_difference;
 }
 
 template <dca::linalg::DeviceType device_t, class Parameters, class Data>
@@ -502,6 +586,19 @@ void CtauxClusterSolver<device_t, Parameters, Data>::collect_measurements() {
     concurrency_.delayedSum(accumulator_.get_error_distribution());
 
     concurrency_.resolveSums();
+
+    // Average sign of the QMC run, reduced over all ranks. The numerator and the denominator are
+    // plain sums: accumulated_sign_ above is a leave-one-out sum when a jackknife estimate is
+    // requested, and the requested measurement count can differ from the number of measurements
+    // that were actually done. Reducing the raw counters keeps log and output file identical.
+    int accumulated_sign = accumulator_.get_accumulated_sign();
+    int number_of_measurements = accumulator_.get_number_of_measurements();
+    concurrency_.sum(accumulated_sign);
+    concurrency_.sum(number_of_measurements);
+    if (number_of_measurements > 0)
+      average_sign_ = double(accumulated_sign) / double(number_of_measurements);
+    else
+      average_sign_ = 1.;
   }
 
   M_r_w_ /= accumulated_sign_;
@@ -531,8 +628,7 @@ void CtauxClusterSolver<device_t, Parameters, Data>::collect_measurements() {
               << "\n\t\t\t QMC-total-time : " << total_time_ << " [sec]"
               << "\n\t\t\t Gflop   : " << accumulator_.get_Gflop() << " [Gf]"
               << "\n\t\t\t Gflop/s   : " << accumulator_.get_Gflop() / local_time << " [Gf/s]"
-              << "\n\t\t\t sign     : " << accumulated_sign_ / parameters_.get_measurements()
-              << " \n";
+              << "\n\t\t\t sign     : " << average_sign_ << " \n";
 
   averaged_ = true;
 }
@@ -834,39 +930,144 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
   const double L2_error = self_energy_residual_l2_norm();
   const double error_infty_norm = self_energy_residual_infty_norm();
 
-  if (parameters_.get_self_energy_mixing_scheme() == SelfEnergyMixingScheme::LINEAR) {
-    for (int l = 0; l < data_.Sigma.size(); l++)
-      data_.Sigma(l) = alpha * data_.Sigma(l) + (1. - alpha) * data_.Sigma_cluster(l);
+  // Keep the self-energy with the smallest residual seen so far. L2_error describes
+  // data_.Sigma_cluster, i.e. the output of the previous iteration, so storing it together with
+  // this value gives a consistent (Sigma, L2) pair to fall back to.
+  //
+  // best_Sigma_ is overwritten with the mixed self-energy further down, once the mixer has run:
+  // that is the self-energy the DCA loop would have written for this iteration, i.e. the one that
+  // the density and the chemical potential of this iteration are evaluated with. The input
+  // self-energy is only kept as a fallback for the iteration that stops the loop, because the
+  // mixing is skipped there.
+  const bool new_best = L2_error < best_L2_error_;
+  if (new_best) {
+    best_L2_error_ = L2_error;
+    best_dca_iteration_ = dca_iteration_;
+    best_Sigma_ = data_.Sigma_cluster;
+    best_Sigma_new_ = Sigma_new_;
+    best_Sigma_stdv_ = data_.get_Sigma_stdv();
+    best_G_k_w_stdv_ = data_.get_G_k_w_stdv();
+    best_G_k_w_ = data_.G_k_w;
+    best_Sigma_old_ = Sigma_old_;
+    best_M_r_w_ = M_r_w_;
+    best_M_r_w_squared_ = M_r_w_squared_;
+    best_chemical_potential_ = chemical_potential_at_start_;
+    best_sign_ = current_sign_;
+    best_expansion_order_ = current_expansion_order_;
+    best_has_error_bars_ = compute_jack_knife_;
+    if (best_has_error_bars_)
+      best_G_r_w_error_ = data_.get_G_r_w_error();
   }
-  else {
-    // Anderson/Pulay (DIIS) acceleration. data_.Sigma holds Sigma_QMC and data_.Sigma_cluster
-    // holds the input self-energy; the mixer is in-place safe.
-    //
-    // Parallel contract: keep this outside of any rank guard. data_.Sigma and data_.Sigma_cluster
-    // are globally replicated (M_r_w_ and the coarsegraining are reduced with MPI_Allreduce), so
-    // executing the mixer on every rank keeps the replicated histories in sync. Guarding this call
-    // by rank, or skipping it on some ranks, would silently make the ranks diverge.
-    self_energy_mixer_.mix(data_.Sigma.values(), data_.Sigma_cluster.values(),
-                           data_.Sigma.values(), static_cast<int>(data_.Sigma.size()));
 
-    // Report the DIIS coefficients on the first rank only. The mixer itself runs on every rank
-    // (see the parallel contract above), but printing must be rank-guarded.
+  // Stop as soon as the residual grows again. This is the only criterion and it applies to both
+  // mixing schemes: whatever caused the growth, the previous iteration had the smaller residual,
+  // so continuing would only move away from the fixed point. The comparison is made against the
+  // previous iteration, which is the only linear reference available: evaluating both variants
+  // would require an additional QMC run. The criterion has no tolerance: the first increase stops
+  // the loop.
+  const bool regression = previous_L2_error_ > 0. && L2_error > previous_L2_error_;
+
+  if (regression) {
+    stop_requested_ = true;
+    // Discard the step of this iteration: the output must be the best iteration, not the one that
+    // made L2 grow. best_Sigma_ is the mixed self-energy of the saved iteration and carries the
+    // double-counting correction like every self-energy of the loop, so
+    // adjust_impurity_self_energy() removes it again as usual.
+    data_.Sigma = best_Sigma_;
+    // Restore the chemical potential of that iteration as well. best_dca_iteration_ can be older
+    // than the previous iteration, so taking the value from the DCA loop would be wrong.
+    parameters_.get_chemical_potential() = best_chemical_potential_;
+    // Restore the un-mixed quantities of the same iteration, so that the diagnostics derived in
+    // finalize() and the error bars written to the output belong to the saved iteration too.
+    Sigma_new_ = best_Sigma_new_;
+    data_.get_Sigma_stdv() = best_Sigma_stdv_;
+    data_.get_G_k_w_stdv() = best_G_k_w_stdv_;
+    // G_k_w and G_r_w are measured again in every iteration. Restore the ones that belong to
+    // best_Sigma_ and redo the Fourier transform, so that G, G( tau ) and the density derived from
+    // them all describe the saved iteration.
+    data_.G_k_w = best_G_k_w_;
+    math::transform::FunctionTransform<KClusterDmn, RClusterDmn>::execute(data_.G_k_w, data_.G_r_w);
+    Sigma_old_ = best_Sigma_old_;
+    M_r_w_ = best_M_r_w_;
+    M_r_w_squared_ = best_M_r_w_squared_;
+    if (best_has_error_bars_)
+      data_.get_G_r_w_error() = best_G_r_w_error_;
+    else if (compute_jack_knife_)
+      // A jackknife estimate only exists for the last DCA iteration, so the saved iteration usually
+      // has none. Leaving the array untouched would write the error bars of the rejected run
+      // together with the restored self-energy, so clear them instead.
+      data_.get_G_r_w_error() = 0.;
     if (concurrency_.id() == concurrency_.first()) {
-      const auto& c = self_energy_mixer_.lastCoefficients();
-      std::cout << "\n\t\t Anderson mixing: m = " << self_energy_mixer_.historySize()
-                << ", |r| = " << self_energy_mixer_.lastResidualNorm()
-                << ", |sum c_i r_i| = " << self_energy_mixer_.lastCombinedResidualNorm();
-      if (self_energy_mixer_.lastFellBack())
-        std::cout << (self_energy_mixer_.historySize() == 1 ? " (warm-up, linear step)"
-                                                           : " (fallback, linear step)");
-      if (self_energy_mixer_.lastCoefficientsClipped())
-        std::cout << " (coefficients clipped)";
-      std::cout << "\n\t\t c = [";
-      for (std::size_t j = 0; j < c.size(); ++j)
-        std::cout << (j == 0 ? "" : ", ") << c[j];
-      std::cout << "]" << std::endl;
+      std::cout << "\n\t\t iteration " << (dca_iteration_ + 1) << ": stopping, L2 increased from "
+                << previous_L2_error_ << " to " << L2_error << "\n\t\t restoring iteration "
+                << (best_dca_iteration_ + 1) << " as the final result (L2 = " << best_L2_error_
+                << ", sign = " << best_sign_ << ", <k> = " << best_expansion_order_
+                << ") and stopping the DCA loop\n";
+    }
+    return best_L2_error_;
+  }
+  previous_L2_error_ = L2_error;
+
+  // alpha == 0 freezes the self-energy: the iteration measures at the current Sigma and does not
+  // update it. That is what a fixed-self-energy measurement needs, e.g. a one-iteration four-point
+  // run on top of a converged sp file. It cannot converge an sp run, so it is reported explicitly.
+  // Both schemes are skipped here; with ANDERSON the mixer would otherwise still extrapolate the
+  // history of inputs, which is not the same as "do not update".
+  if (alpha > 0.) {
+    if (parameters_.get_self_energy_mixing_scheme() == SelfEnergyMixingScheme::LINEAR) {
+      for (int l = 0; l < data_.Sigma.size(); l++)
+        data_.Sigma(l) = alpha * data_.Sigma(l) + (1. - alpha) * data_.Sigma_cluster(l);
+    }
+    else {
+      // Anderson/Pulay (DIIS) acceleration. data_.Sigma holds Sigma_QMC and data_.Sigma_cluster
+      // holds the input self-energy; the mixer is in-place safe.
+      //
+      // Parallel contract: keep this outside of any rank guard. data_.Sigma and data_.Sigma_cluster
+      // are globally replicated (M_r_w_ and the coarsegraining are reduced with MPI_Allreduce), so
+      // executing the mixer on every rank keeps the replicated histories in sync. Guarding this
+      // call by rank, or skipping it on some ranks, would silently make the ranks diverge.
+      self_energy_mixer_.mix(data_.Sigma.values(), data_.Sigma_cluster.values(),
+                             data_.Sigma.values(), static_cast<int>(data_.Sigma.size()));
+
+      // Report the DIIS coefficients on the first rank only. The mixer itself runs on every rank
+      // (see the parallel contract above), but printing must be rank-guarded.
+      if (concurrency_.id() == concurrency_.first()) {
+        const auto& c = self_energy_mixer_.lastCoefficients();
+        std::cout << "\n\t\t Anderson mixing: m = " << self_energy_mixer_.historySize()
+                  << ", |r| = " << self_energy_mixer_.lastResidualNorm()
+                  << ", |sum c_i r_i| = " << self_energy_mixer_.lastCombinedResidualNorm();
+        // The extrapolation only starts once the history is full, so a linear step with fewer
+        // entries is the warm-up of a fresh history, not a failed extrapolation.
+        if (self_energy_mixer_.lastFellBack()) {
+          const int history_size = static_cast<int>(self_energy_mixer_.historySize());
+          std::cout << (history_size < parameters_.get_self_energy_mixing_history_size()
+                            ? " (warm-up, linear step)"
+                            : " (fallback, linear step)");
+        }
+        if (self_energy_mixer_.lastCoefficientsClipped())
+          std::cout << " (coefficients clipped)";
+        std::cout << "\n\t\t c = [";
+        for (std::size_t j = 0; j < c.size(); ++j)
+          std::cout << (j == 0 ? "" : ", ") << c[j];
+        std::cout << "]" << std::endl;
+      }
     }
   }
+  else {
+    // alpha == 0: keep the input self-energy, i.e. do not update it. data_.Sigma holds Sigma_QMC
+    // at this point, so it has to be reset explicitly; leaving it alone would mean "take the full
+    // QMC step" instead of "do not update".
+    data_.Sigma = data_.Sigma_cluster;
+    if (concurrency_.id() == concurrency_.first())
+      std::cout << "\n\t\t self-energy mixing factor is 0: the self-energy is not updated\n";
+  }
+
+  // Only now is the self-energy of this iteration final: the mixer output is what the DCA loop
+  // writes and what the density and the chemical potential of this iteration are evaluated with.
+  // Saving the input self-energy instead would put a state into the output whose density differs
+  // from the recorded one by the size of a mixing step.
+  if (new_best)
+    best_Sigma_ = data_.Sigma;
 
   if (concurrency_.id() == concurrency_.first()) {
     std::cout << "\n\n\t\t |Sigma_QMC - Sigma_cg|_infty ~ " << error_infty_norm;
@@ -907,74 +1108,7 @@ double CtauxClusterSolver<device_t, Parameters, Data>::self_energy_residual_inft
   return error_infty_norm;
 }
 
-// Builds the element weights of the norm in which the Anderson residual is minimized.
-//
-// Why a weighted norm: at high frequency Sigma = G0^-1 - G^-1 is a difference of two O(w)
-// quantities, so a relative error eps of G becomes an absolute error ~ w * eps of Sigma. The
-// high-frequency tail therefore carries the largest error, and -- being essentially constant from
-// one DCA iteration to the next -- also the least information about where the iteration should go.
-// The convergence criterion, in contrast, only looks at the lowest Matsubara frequencies.
-//
-//   earlier  every element had weight 1, so the coefficient solve was dominated by the tail.
-//   now      a soft window 1 / (1 + (w / w_c)^4): weight 1 at low frequency, below 1.e-2 for
-//            w > 3 w_c. Only the choice of the coefficients c_i is affected; the mixed
-//            self-energy still uses all frequencies.
-//
-// w_c is placed at the DCA::mixing-residual-weight-cutoff-th positive Matsubara frequency; a
-// cutoff of 0 restores the uniform norm used earlier.
-template <dca::linalg::DeviceType device_t, class Parameters, class Data>
-void CtauxClusterSolver<device_t, Parameters, Data>::initialize_self_energy_mixing_weights() {
-  const int n_w = w::dmn_size();
-  const int lowest_positive = n_w / 2;
 
-  // Number of positive Matsubara frequencies kept at (almost) full weight. A value of 0 disables
-  // the weighting and restores the uniform norm used before it was introduced.
-  const int cutoff = parameters_.get_self_energy_mixing_residual_weight_cutoff();
-
-  if (cutoff <= 0 || n_w < 4) {
-    self_energy_mixer_.clearResidualWeights();
-    if (concurrency_.id() == concurrency_.first() && cutoff > 0)
-      std::cout << "\n\t\t The cluster has too few Matsubara frequencies, the Anderson residual "
-                   "weights are not used.\n";
-    return;
-  }
-
-  const int max_offset = std::max(0, n_w - 1 - lowest_positive);
-  const int offset = std::min(cutoff, max_offset);
-  const double w_c = std::abs(w::get_elements()[lowest_positive + offset]);
-
-  if (concurrency_.id() == concurrency_.first()) {
-    std::cout << "\n\t\t Anderson residual weights: cutoff = " << offset
-              << " positive Matsubara frequencies, w_c = " << w_c;
-    if (max_offset > 0 && offset * 10 >= max_offset * 9)
-      std::cout << " (close to the highest frequency, the weights are almost uniform)";
-    std::cout << std::endl;
-  }
-
-  std::vector<double> weight_per_frequency(n_w, 1.);
-  if (w_c > 0.)
-    for (int w_ind = 0; w_ind < n_w; ++w_ind) {
-      const double ratio = std::abs(w::get_elements()[w_ind]) / w_c;
-      const double ratio_squared = ratio * ratio;
-      weight_per_frequency[w_ind] = 1. / (1. + ratio_squared * ratio_squared);
-    }
-
-  // Build the weights in the layout of the self-energy through the domain-aware accessor, so that
-  // no assumption about the internal ordering of the frequency index is needed.
-  func::function<std::complex<double>, NuNuKClusterWDmn> weight_function("self-energy-weights");
-  for (int i = 0; i < nu::dmn_size(); ++i)
-    for (int j = 0; j < nu::dmn_size(); ++j)
-      for (int k_ind = 0; k_ind < KClusterDmn::dmn_size(); ++k_ind)
-        for (int w_ind = 0; w_ind < n_w; ++w_ind)
-          weight_function(i, j, k_ind, w_ind) =
-              std::complex<double>(weight_per_frequency[w_ind], 0.);
-
-  std::vector<double> weights(weight_function.size());
-  for (std::size_t i = 0; i < weights.size(); ++i)
-    weights[i] = weight_function(static_cast<int>(i)).real();
-
-  self_energy_mixer_.setResidualWeights(std::move(weights));
-}
 
 template <dca::linalg::DeviceType device_t, class Parameters, class Data>
 auto CtauxClusterSolver<device_t, Parameters, Data>::local_G_k_w() const {

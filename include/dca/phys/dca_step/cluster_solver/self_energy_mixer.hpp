@@ -30,12 +30,10 @@ namespace solver {
 // where the coefficients c_i minimize |sum_i c_i r_i|^2 subject to sum_i c_i = 1.
 // For a single history entry this reduces to plain linear mixing, x + alpha * r.
 //
-// Inner product: the residual norm can be weighted element by element (setResidualWeights).  The
-// self-energy spectrum is dominated by the high-frequency tail, where consecutive iterations are
-// indistinguishable and where Sigma = G0^-1 - G^-1 suffers from cancellation.  An unweighted norm
-// therefore fixes the DIIS coefficients mostly from the least interesting part of the spectrum.
-// The weights restrict the minimization to the low-frequency window that carries the convergence
-// information; the mixed self-energy always uses all elements.
+// Inner product: the plain Euclidean one over all elements, A_ij = sum_k r_i(k) r_j(k).  There is
+// deliberately no frequency weighting and no frequency cutoff: every element of the self-energy
+// enters the coefficient solve with exactly the same weight, so the coefficients do not depend on
+// an externally chosen frequency window.
 //
 // Robustness:
 //   - the bordered Gram system is Tikhonov regularized and solved with a *relative* pivot threshold,
@@ -49,9 +47,7 @@ namespace solver {
 //   - non-finite self-energies are rejected instead of being stored in the history.
 //
 // Difference to the earlier version of this mixer (the prototype that had no safeguards):
-//   norm     earlier: A_ij = r_i . r_j summed over all elements with uniform weight. The
-//                     high-frequency tail, whose error grows with w, then dominated the solve.
-//            now:     A_ij = sum_k w_k r_i(k) r_j(k), see setResidualWeights().
+//   norm     unchanged: A_ij = r_i . r_j summed over all elements with uniform weight.
 //   pivot    earlier: |pivot| < 1.e-14, an absolute threshold unrelated to the residual scale.
 //            now:     |pivot| < pivot_tolerance * max_diag.
 //   coeffs   earlier: used exactly as solved, so O(1.e2) values with alternating signs occurred.
@@ -72,7 +68,9 @@ namespace solver {
 class SelfEnergyMixer {
 public:
   struct Config {
-    // Mixing factor alpha. alpha = 1 is pure Anderson, alpha < 1 damps the step.
+    // Mixing factor alpha. alpha = 1 is pure Anderson, alpha < 1 damps the step. alpha = 0 means
+    // "do not update": the solver skips the mixer entirely in that case, because multiplying the
+    // step by zero here would leave only the extrapolation sum_i c_i x_i of the history.
     double alpha = 1.;
     // Number of history entries. A value < 1 marks an unconfigured mixer.
     int max_history = 0;
@@ -106,30 +104,13 @@ public:
     config_ = config;
   }
 
-  // Uses the weights of the most recent mix() call for the diagnostics.
+  // Mixing factor alpha passed to configure().
   double getAlpha() const {
     return config_.alpha;
   }
 
   int getMaxHistory() const {
     return config_.max_history;
-  }
-
-  // Weights of the inner product in which the DIIS residual is minimized. Must have one entry per
-  // element of the self-energy. An empty vector restores the uniform norm.
-  void setResidualWeights(std::vector<double> weights) {
-    for (std::size_t i = 0; i < weights.size(); ++i)
-      if (!(weights[i] >= 0.) || !std::isfinite(weights[i]))
-        throw std::logic_error("SelfEnergyMixer: the residual weights must be non-negative.");
-    weights_ = std::move(weights);
-    if (!weights_.empty() && size_ != 0 && static_cast<int>(weights_.size()) != size_)
-      throw std::logic_error(
-          "SelfEnergyMixer: the number of residual weights must match the size of the "
-          "self-energy.");
-  }
-
-  void clearResidualWeights() {
-    weights_.clear();
   }
 
   void reset() {
@@ -143,6 +124,7 @@ public:
     last_combined_residual_norm_ = 0.;
     previous_residual_norm_ = 0.;
     restarts_ = 0;
+    last_used_extrapolation_ = false;
   }
 
   std::size_t historySize() const {
@@ -166,13 +148,13 @@ public:
     return last_clipped_;
   }
 
-  // Weighted norm of the residual r = F(x) - x of the most recent mix() call, i.e. the quantity a
+  // Euclidean norm of the residual r = F(x) - x of the most recent mix() call, i.e. the quantity a
   // scheme-independent convergence criterion should be based on.
   double lastResidualNorm() const {
     return last_residual_norm_;
   }
 
-  // Weighted norm of the DIIS residual sum_i c_i r_i, i.e. what the coefficient solve minimized.
+  // Norm of the DIIS residual sum_i c_i r_i, i.e. what the coefficient solve minimized.
   double lastCombinedResidualNorm() const {
     return last_combined_residual_norm_;
   }
@@ -180,6 +162,11 @@ public:
   // Number of times the history was dropped because the residual grew too fast.
   int restarts() const {
     return restarts_;
+  }
+
+  // True if the most recent mix() call used the extrapolation (as opposed to a plain linear step).
+  bool lastUsedExtrapolation() const {
+    return last_used_extrapolation_;
   }
 
   // In-place safe: sigma_out may alias sigma_qmc and/or sigma_in.
@@ -197,10 +184,16 @@ public:
       size_ = size;
     else if (size_ != size)
       throw std::logic_error("SelfEnergyMixer: the size of the self-energy must not change.");
-    if (!weights_.empty() && static_cast<int>(weights_.size()) != size)
-      throw std::logic_error(
-          "SelfEnergyMixer: the number of residual weights must match the size of the "
-          "self-energy.");
+
+    // alpha == 0 means "do not update": copy the input unchanged and leave the history untouched,
+    // so that a run which does not update the self-energy cannot feed the extrapolation either.
+    if (config_.alpha == 0.) {
+      std::copy(sigma_in, sigma_in + size, sigma_out);
+      last_coefficients_ = std::vector<double>{1.};
+      last_fell_back_ = true;
+      last_combined_residual_norm_ = 0.;
+      return;
+    }
 
     // Residual r = F(x) - x. Reject a broken QMC result instead of storing it for max_history
     // iterations.
@@ -216,7 +209,7 @@ public:
     // A residual that grew a lot means the fixed-point iteration has moved somewhere else (bad
     // iteration, chemical potential update, double counting update, ...). Extrapolating from the
     // old history would be worse than starting over.
-    const double residual_norm = weightedNorm(residual);
+    const double residual_norm = vectorNorm(residual);
     if (!history_.empty() && previous_residual_norm_ > 0. &&
         residual_norm > config_.residual_growth_limit * previous_residual_norm_) {
       history_.clear();
@@ -234,7 +227,12 @@ public:
     bool use_diis = false;
     std::vector<double> coefficients;
     last_clipped_ = false;
-    if (history_.size() > 1 && solveCoefficients(coefficients))
+    // The first max_history - 1 iterations are plain linear mixing steps that fill the history.
+    // With fewer entries than max_history the constrained least-squares problem has no redundancy,
+    // so the coefficients would be fixed by the noise of the individual residuals rather than by
+    // their common trend. max_history == 1 disables the extrapolation entirely.
+    if (config_.max_history > 1 && static_cast<int>(history_.size()) >= config_.max_history &&
+        solveCoefficients(coefficients))
       use_diis = clipCoefficients(coefficients);
 
     x_new_.resize(static_cast<std::size_t>(size));
@@ -261,6 +259,7 @@ public:
 
     last_residual_norm_ = residual_norm;
     previous_residual_norm_ = residual_norm;
+    last_used_extrapolation_ = use_diis;
   }
 
 private:
@@ -272,8 +271,8 @@ private:
   static void validateConfig(const Config& config) {
     if (config.max_history < 1)
       throw std::logic_error("SelfEnergyMixer: max_history must be >= 1.");
-    if (!(config.alpha > 0.) || !std::isfinite(config.alpha))
-      throw std::logic_error("SelfEnergyMixer: alpha must be positive.");
+    if (!(config.alpha >= 0.) || !std::isfinite(config.alpha))
+      throw std::logic_error("SelfEnergyMixer: alpha must not be negative.");
     if (!(config.regularization >= 0.) || !std::isfinite(config.regularization))
       throw std::logic_error("SelfEnergyMixer: the regularization must be non-negative.");
     if (!(config.max_coefficient >= 1.) || !std::isfinite(config.max_coefficient))
@@ -289,22 +288,19 @@ private:
       throw std::logic_error("SelfEnergyMixer: configure() must be called before mix().");
   }
 
-  double weight(const std::size_t i) const {
-    return weights_.empty() ? 1. : weights_[i];
-  }
-
-  // Real inner product of two residuals, treated as real vectors of length 2 * size.
-  double weightedInnerProduct(const std::vector<std::complex<double>>& a,
-                              const std::vector<std::complex<double>>& b) const {
+  // Real inner product of two residuals, treated as real vectors of length 2 * size. Every element
+  // enters with weight one.
+  static double innerProduct(const std::vector<std::complex<double>>& a,
+                             const std::vector<std::complex<double>>& b) {
     const std::size_t size = a.size();
     double dot = 0.;
     for (std::size_t i = 0; i < size; ++i)
-      dot += weight(i) * (a[i].real() * b[i].real() + a[i].imag() * b[i].imag());
+      dot += a[i].real() * b[i].real() + a[i].imag() * b[i].imag();
     return dot;
   }
 
-  double weightedNorm(const std::vector<std::complex<double>>& a) const {
-    return std::sqrt(std::max(0., weightedInnerProduct(a, a)));
+  static double vectorNorm(const std::vector<std::complex<double>>& a) {
+    return std::sqrt(std::max(0., innerProduct(a, a)));
   }
 
   double combinedResidualNorm(const std::vector<double>& coefficients) const {
@@ -314,15 +310,15 @@ private:
       std::complex<double> sum(0., 0.);
       for (std::size_t j = 0; j < coefficients.size(); ++j)
         sum += coefficients[j] * history_[j].r[i];
-      norm_squared += weight(i) * std::norm(sum);
+      norm_squared += std::norm(sum);
     }
     return std::sqrt(norm_squared);
   }
 
   // Solves the DIIS linear system for the coefficients c:
   //   min c^T G c  subject to  sum_i c_i = 1,
-  // where G is the (weighted) Gram matrix of the residuals. Returns false if the system is
-  // singular or ill-conditioned.
+  // where G is the Gram matrix of the residuals. Returns false if the system is singular or
+  // ill-conditioned.
   bool solveCoefficients(std::vector<double>& coefficients) {
     const int m = static_cast<int>(history_.size());
     const std::size_t n = static_cast<std::size_t>(m) + 1;
@@ -332,7 +328,7 @@ private:
 
     for (int i = 0; i < m; ++i) {
       for (int j = i; j < m; ++j) {
-        const double dot = weightedInnerProduct(history_[i].r, history_[j].r);
+        const double dot = innerProduct(history_[i].r, history_[j].r);
         a[i * n + j] = dot;
         a[j * n + i] = dot;
       }
@@ -431,7 +427,6 @@ private:
   Config config_;
   int size_ = 0;
   std::deque<Entry> history_;
-  std::vector<double> weights_;
   std::vector<std::complex<double>> x_new_;
   std::vector<double> last_coefficients_;
   bool last_fell_back_ = false;
@@ -440,6 +435,7 @@ private:
   double last_combined_residual_norm_ = 0.;
   double previous_residual_norm_ = 0.;
   int restarts_ = 0;
+  bool last_used_extrapolation_ = false;
 };
 
 }  // solver

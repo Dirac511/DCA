@@ -8,7 +8,6 @@
         "mixing-history-size": 5,
         "mixing-regularization": 1.e-6,
         "mixing-max-coefficient": 5.,
-        "mixing-residual-weight-cutoff": 3,
         "interacting-orbitals": [0, 1, 2],
 
         "do-finite-size-QMC": false,

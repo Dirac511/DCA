@@ -86,6 +86,24 @@ TEST(SelfEnergyMixerTest, SingleHistoryReducesToLinearMixing) {
   EXPECT_TRUE(mixer.lastFellBack());
 }
 
+// alpha = 0 means "do not update": the mixer returns the input unchanged and leaves the history
+// untouched, which is what a fixed-self-energy measurement relies on.
+TEST(SelfEnergyMixerTest, AlphaZeroLeavesTheSelfEnergyUnchanged) {
+  SelfEnergyMixer mixer;
+  mixer.configure(0., 4);
+
+  const std::vector<Complex> qmc{Complex(2., 1.), Complex(-1., 0.5), Complex(0.25, -3.)};
+  const std::vector<Complex> in{Complex(0.5, 0.), Complex(0.25, 0.1), Complex(-1., 2.)};
+  std::vector<Complex> out(in.size());
+
+  mixer.mix(qmc.data(), in.data(), out.data(), static_cast<int>(out.size()));
+
+  for (std::size_t i = 0; i < in.size(); ++i)
+    EXPECT_EQ(in[i], out[i]);
+  EXPECT_EQ(0u, mixer.historySize());
+  EXPECT_TRUE(mixer.lastFellBack());
+}
+
 TEST(SelfEnergyMixerTest, IsInPlaceSafe) {
   SelfEnergyMixer mixer;
   mixer.configure(1., 1);
@@ -254,48 +272,6 @@ TEST(SelfEnergyMixerTest, ThrowsOnSizeChange) {
 
   std::vector<Complex> b(3, Complex(0., 0.));
   EXPECT_THROW(mixer.mix(b.data(), b.data(), b.data(), 3), std::logic_error);
-}
-
-TEST(SelfEnergyMixerTest, ThrowsOnInvalidResidualWeights) {
-  SelfEnergyMixer mixer;
-  EXPECT_THROW(mixer.setResidualWeights(std::vector<double>{1., -1.}), std::logic_error);
-
-  mixer.configure(1., 4);
-  mixer.setResidualWeights(std::vector<double>{1., 0., 1.});
-  std::vector<Complex> a(2, Complex(0., 0.));
-  EXPECT_THROW(mixer.mix(a.data(), a.data(), a.data(), 2), std::logic_error);
-}
-
-// The weights select the elements that determine the coefficients.
-TEST(SelfEnergyMixerTest, ResidualWeightsSelectElements) {
-  const int n = 2;
-  SelfEnergyMixer uniform;
-  uniform.configure(1., 2);
-  SelfEnergyMixer weighted;
-  weighted.configure(1., 2);
-  weighted.setResidualWeights(std::vector<double>{1., 0.});
-
-  const std::vector<Complex> x0(n, Complex(0., 0.));
-  const std::vector<Complex> y0{Complex(1., 0.), Complex(50., 0.)};
-  std::vector<Complex> xu(x0);
-  std::vector<Complex> xw(x0);
-  uniform.mix(y0.data(), x0.data(), xu.data(), n);
-  weighted.mix(y0.data(), x0.data(), xw.data(), n);
-
-  // Residuals: r0 = 1, r1 = 2 in the first element.
-  const std::vector<Complex> y1{Complex(3., 0.), Complex(120., 0.)};
-  uniform.mix(y1.data(), xu.data(), xu.data(), n);
-  weighted.mix(y1.data(), xw.data(), xw.data(), n);
-
-  // Analytic one-dimensional solution of the constrained minimization.
-  const double r0 = 1.;
-  const double r1 = 2.;
-  const double delta = r0 - r1;
-  const double expected = -r1 * delta / (delta * delta);
-
-  ASSERT_EQ(2u, weighted.lastCoefficients().size());
-  EXPECT_NEAR(expected, weighted.lastCoefficients()[0], 1.e-6);
-  EXPECT_GT(std::abs(uniform.lastCoefficients()[0] - weighted.lastCoefficients()[0]), 1.e-3);
 }
 
 TEST(SelfEnergyMixerTest, ResetClearsTheState) {

@@ -13,6 +13,7 @@
 #define DCA_PHYS_DCA_LOOP_DCA_LOOP_DATA_HPP
 
 #include <complex>
+#include <cstddef>
 
 #include "dca/function/domains.hpp"
 #include "dca/function/function.hpp"
@@ -43,6 +44,11 @@ public:
 
   template <typename Writer>
   void write(Writer& writer);
+
+  // Zeros the entries of all DCA iterations after 'last_iteration', so that the output only
+  // contains the iterations up to that one. Used when the cluster solver stopped early and only
+  // the saved (best) iteration has to be kept.
+  void clear_after(int last_iteration);
 
   func::function<double, DCA_iteration_domain_type> Gflop_per_mpi_task;
   func::function<double, DCA_iteration_domain_type> times_per_mpi_task;
@@ -127,6 +133,40 @@ void DcaLoopData<ParametersType>::write(Writer& writer) {
   }
 
   writer.close_group();
+}
+
+template <typename ParametersType>
+void DcaLoopData<ParametersType>::clear_after(const int last_iteration) {
+  const int n_iterations = DCA_iteration_domain_type::dmn_size();
+
+  if (last_iteration + 1 >= n_iterations)
+    return;
+
+  // The DCA-iteration index is the last domain of every function below and therefore has the
+  // largest stride, which makes the entries that belong to one iteration contiguous.
+  auto clear_iterations = [n_iterations, last_iteration](auto& f) {
+    const std::size_t stride = f.size() / n_iterations;
+    for (std::size_t l = std::size_t(last_iteration + 1) * stride; l < f.size(); ++l)
+      f(l) = 0.;
+  };
+
+  clear_iterations(Gflop_per_mpi_task);
+  clear_iterations(times_per_mpi_task);
+  clear_iterations(thermalization_per_mpi_task);
+  clear_iterations(MC_integration_per_mpi_task);
+  clear_iterations(Gflops_per_mpi_task);
+  clear_iterations(max_Gflops_per_mpi_task);
+  clear_iterations(sign);
+  clear_iterations(L2_Sigma_difference);
+  clear_iterations(Sigma_zero_moment);
+  clear_iterations(standard_deviation);
+  clear_iterations(sigma_lambda);
+  clear_iterations(n_k);
+  clear_iterations(A_k);
+  clear_iterations(orbital_occupancies);
+  clear_iterations(density);
+  clear_iterations(chemical_potential);
+  clear_iterations(average_expansion_order);
 }
 
 }  // phys

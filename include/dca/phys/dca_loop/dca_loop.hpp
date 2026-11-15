@@ -89,7 +89,7 @@ protected:
 
   void perform_lattice_mapping();
 
-  void update_DCA_loop_data_functions(int DCA_iteration);
+  void update_DCA_loop_data_functions(int DCA_iteration, const bool record = true);
 
   ParametersType& parameters;
   DcaDataType& MOMS;
@@ -193,13 +193,22 @@ void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::execute() {
 
     perform_cluster_exclusion_step();
 
-    double L2_Sigma_difference = solve_cluster_problem(i);  // returned from cluster_solver::finalize
+    const double L2_Sigma_difference = solve_cluster_problem(i);  // returned from cluster_solver::finalize
 
     adjust_impurity_self_energy();  // double-counting-correction
 
     perform_lattice_mapping();
 
-    update_DCA_loop_data_functions(i);
+    // A negative value is the stop signal of the cluster solver: the L2 residual grew again, so
+    // further iterations would only move away from the fixed point. The solver restored the saved
+    // iteration and did not write the row of the rejected one, so this row is skipped here as well.
+    // The density is still recomputed, because MOMS.orbital_occupancy has to describe the restored
+    // self-energy that is written to the output.
+    const bool rejected = L2_Sigma_difference < 0.;
+    update_DCA_loop_data_functions(i, !rejected);
+
+    if (rejected)
+      break;
 
     if (L2_Sigma_difference <
         parameters.get_dca_accuracy())  // set the acquired accuracy on |Sigma_QMC - Sigma_cg|
@@ -333,8 +342,16 @@ void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::perform_lattice_map
 }
 
 template <typename ParametersType, typename DcaDataType, typename MCIntegratorType>
-void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::update_DCA_loop_data_functions(int i) {
-  DCA_info_struct.density(i) = update_chemical_potential_obj.compute_density();
+void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::update_DCA_loop_data_functions(
+    int i, const bool record) {
+  // Always recomputed, also for a rejected iteration: MOMS.orbital_occupancy feeds the final
+  // single-particle properties and therefore has to describe the restored self-energy.
+  const double density = update_chemical_potential_obj.compute_density();
+
+  if (!record)
+    return;
+
+  DCA_info_struct.density(i) = density;
   DCA_info_struct.chemical_potential(i) = parameters.get_chemical_potential();
 
   if (concurrency.id() == concurrency.first()) {

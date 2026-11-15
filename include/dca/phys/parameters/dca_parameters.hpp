@@ -6,6 +6,7 @@
 // See CITATION.md for citation guidelines, if DCA++ is used for scientific publications.
 //
 // Author: Peter Staar (taa@zurich.ibm.com)
+//         Andrei Plamada (plamada@itp.phys.ethz.ch)
 //
 // This class reads, stores, and writes the DCA parameters.
 
@@ -36,7 +37,6 @@ public:
         self_energy_mixing_history_size_(8),
         self_energy_mixing_regularization_(1.e-8),
         self_energy_mixing_max_coefficient_(10.),
-        self_energy_mixing_residual_weight_cutoff_(20),
         interacting_orbitals_{0},
 
         do_finite_size_qmc_(false),
@@ -91,9 +91,6 @@ public:
   double get_self_energy_mixing_max_coefficient() const {
     return self_energy_mixing_max_coefficient_;
   }
-  int get_self_energy_mixing_residual_weight_cutoff() const {
-    return self_energy_mixing_residual_weight_cutoff_;
-  }
   const std::vector<int>& get_interacting_orbitals() const {
     return interacting_orbitals_;
   }
@@ -139,12 +136,12 @@ private:
   SelfEnergyMixingScheme self_energy_mixing_scheme_;
   int self_energy_mixing_history_size_;
   // Anderson/Pulay mixer settings. In the earlier prototype these were hard-coded constants: the
-  // regularization was 1.e-8, the coefficients had no bound, and the residual norm had uniform
-  // weights. They are exposed as parameters so that the old behavior can be reproduced exactly
-  // (regularization 1.e-8, max coefficient 1.e30, weight cutoff 0) or tuned.
+  // regularization was 1.e-8 and the coefficients had no bound. They are exposed as parameters so
+  // that the old behavior can be reproduced exactly (regularization 1.e-8, max coefficient 1.e30)
+  // or tuned. The DIIS residual norm is the plain unweighted one; there is deliberately no
+  // frequency cutoff parameter.
   double self_energy_mixing_regularization_;
   double self_energy_mixing_max_coefficient_;
-  int self_energy_mixing_residual_weight_cutoff_;
   std::vector<int> interacting_orbitals_;
 
   bool do_finite_size_qmc_;
@@ -176,7 +173,6 @@ int DcaParameters::getBufferSize(const Concurrency& concurrency) const {
   buffer_size += concurrency.get_buffer_size(self_energy_mixing_history_size_);
   buffer_size += concurrency.get_buffer_size(self_energy_mixing_regularization_);
   buffer_size += concurrency.get_buffer_size(self_energy_mixing_max_coefficient_);
-  buffer_size += concurrency.get_buffer_size(self_energy_mixing_residual_weight_cutoff_);
   buffer_size += concurrency.get_buffer_size(interacting_orbitals_);
   buffer_size += concurrency.get_buffer_size(do_finite_size_qmc_);
   buffer_size += concurrency.get_buffer_size(k_mesh_recursion_);
@@ -204,7 +200,6 @@ void DcaParameters::pack(const Concurrency& concurrency, char* buffer, int buffe
   concurrency.pack(buffer, buffer_size, position, self_energy_mixing_history_size_);
   concurrency.pack(buffer, buffer_size, position, self_energy_mixing_regularization_);
   concurrency.pack(buffer, buffer_size, position, self_energy_mixing_max_coefficient_);
-  concurrency.pack(buffer, buffer_size, position, self_energy_mixing_residual_weight_cutoff_);
   concurrency.pack(buffer, buffer_size, position, interacting_orbitals_);
   concurrency.pack(buffer, buffer_size, position, do_finite_size_qmc_);
   concurrency.pack(buffer, buffer_size, position, k_mesh_recursion_);
@@ -230,7 +225,6 @@ void DcaParameters::unpack(const Concurrency& concurrency, char* buffer, int buf
   concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_history_size_);
   concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_regularization_);
   concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_max_coefficient_);
-  concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_residual_weight_cutoff_);
   concurrency.unpack(buffer, buffer_size, position, interacting_orbitals_);
   concurrency.unpack(buffer, buffer_size, position, do_finite_size_qmc_);
   concurrency.unpack(buffer, buffer_size, position, k_mesh_recursion_);
@@ -280,14 +274,13 @@ void DcaParameters::readWrite(ReaderOrWriter& reader_or_writer) {
 
     // Numerical settings of the Anderson/Pulay mixer. A file written for the earlier prototype
     // does not contain them and keeps the defaults below. Those defaults match the old hard-coded
-    // values for the regularization (1.e-8) and for the weights (20 positive Matsubara
-    // frequencies), but the coefficient bound (10) is new: the old code had no bound at all.
-    // Setting "mixing-max-coefficient" to a very large value and
-    // "mixing-residual-weight-cutoff" to 0 reproduces the old behavior exactly.
+    // value for the regularization (1.e-8), but the coefficient bound (10) is new: the old code
+    // had no bound at all. Setting "mixing-max-coefficient" to a very large value reproduces the
+    // old behavior exactly. The DIIS residual norm is the plain unweighted one, so there is no
+    // "mixing-residual-weight-cutoff" entry anymore.
     try_to_read("mixing-history-size", self_energy_mixing_history_size_);
     try_to_read("mixing-regularization", self_energy_mixing_regularization_);
     try_to_read("mixing-max-coefficient", self_energy_mixing_max_coefficient_);
-    try_to_read("mixing-residual-weight-cutoff", self_energy_mixing_residual_weight_cutoff_);
 
     try_to_read("interacting-orbitals", interacting_orbitals_);
 
@@ -340,9 +333,6 @@ void DcaParameters::readWrite(ReaderOrWriter& reader_or_writer) {
       throw std::logic_error("The self-energy mixing regularization must not be negative.");
     if (self_energy_mixing_max_coefficient_ < 1.)
       throw std::logic_error("The maximal self-energy mixing coefficient must be at least 1.");
-    if (self_energy_mixing_residual_weight_cutoff_ < 0)
-      throw std::logic_error(
-          "The cutoff of the self-energy mixing residual weights must not be negative.");
   }
 }
 

@@ -218,6 +218,7 @@ Consequently, for linear mixing the value reported now is a factor 1/&alpha; lar
 
 `"self-energy-mixing-factor":` double (1.)  
 &Sigma;<sup>(n)</sup> = &alpha; &Sigma;<sup>(n)</sup><sub>QMC</sub> + (1-&alpha;)&Sigma;<sup>(n-1)</sup><sub>coarsegrained</sub>, where &alpha; is the self-energy mixing factor. For "ANDERSON" it damps the extrapolated step; &alpha; = 1 corresponds to the undamped Anderson/Pulay mixer.  
+&alpha; = 0 freezes the self-energy: every iteration measures at the current &Sigma; and does not update it, which is what a fixed-self-energy measurement needs (for example a one-iteration four-point run started from a converged sp file). Such a run never converges the self-consistency loop, so it is reported explicitly in the log. Negative values are rejected.  
 
 `"mixing-scheme":` string ("LINEAR")  
 Scheme used to mix the cluster self-energy. "LINEAR": standard linear mixing, &Sigma;<sup>(n)</sup> = &alpha; &Sigma;<sup>(n)</sup><sub>QMC</sub> + (1-&alpha;)&Sigma;<sup>(n-1)</sup><sub>coarsegrained</sub>. "ANDERSON": Anderson/Pulay (DIIS) acceleration of the same fixed-point iteration.  
@@ -233,11 +234,6 @@ Earlier this was a hard-coded constant with the same value (1.e-8) and could not
 `"mixing-max-coefficient":` double (10.)  
 Clipping bound for the Anderson/Pulay coefficients; the clipped coefficients are renormalized such that they still sum to one. Values below 1 are rejected. Ignored if "mixing-scheme" is "LINEAR".  
 Earlier there was no bound at all, so coefficients of order 1.e2 with alternating signs could occur; set this parameter to a very large value (e.g. 1.e30) to reproduce that behavior.
-
-`"mixing-residual-weight-cutoff":` integer (20)  
-Position, in units of positive Matsubara frequencies, of the soft cutoff `w_c` of the weights used by the Anderson/Pulay mixer: the residual is minimized in the norm with weights `1 / (1 + (w / w_c)^4)`, i.e. weight 1 at low frequency and below 1.e-2 for `w > 3 w_c`.  
-The high-frequency part of the self-energy is a difference of two O(&omega;) quantities and therefore carries an absolute error growing with `w`, while being nearly constant from one iteration to the next. An unweighted norm would determine the Anderson coefficients mostly from that least informative part of the spectrum; the window restricts the coefficient solve to the low frequencies. The mixed self-energy itself still uses all frequencies.  
-Earlier every element had weight 1 (no weighting at all); set this parameter to 0 to reproduce that. Negative values are rejected. Ignored if "mixing-scheme" is "LINEAR".
 
 `"interacting-orbitals":` array of integers ([0])  
 Indices of orbitals that are treated interacting.  
