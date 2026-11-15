@@ -225,7 +225,8 @@ Scheme used to mix the cluster self-energy. "LINEAR": standard linear mixing, &S
 Note that only the CT-AUX cluster solver implements "ANDERSON"; the other solvers ignore the scheme and keep mixing linearly.
 
 `"mixing-history-size":` integer (8)  
-Number of previous self-energy iterations kept by the Anderson/Pulay mixer. Ignored if "mixing-scheme" is "LINEAR". Values below 1 are rejected.
+Number of previous self-energy iterations kept by the Anderson/Pulay mixer. Ignored if "mixing-scheme" is "LINEAR". Values below 1 are rejected.  
+The extrapolation starts as soon as two iterations are stored, so this is only the length of the window, not a warm-up: with the short DCA runs the mixer would otherwise spend most of the iteration budget on plain linear steps.
 
 `"mixing-regularization":` double (1.e-8)  
 Relative Tikhonov regularization of the linear system that determines the Anderson/Pulay coefficients. It only acts when the residual history becomes (nearly) linearly dependent, which happens close to convergence and whenever the iteration stalls; larger values pull the coefficients towards the uniform average (robust but less accelerative). Ignored if "mixing-scheme" is "LINEAR".  

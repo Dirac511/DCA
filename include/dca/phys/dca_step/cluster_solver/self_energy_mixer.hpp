@@ -28,7 +28,9 @@ namespace solver {
 // r = F(x) - x:
 //   x_new = sum_i c_i (x_i + alpha * r_i),
 // where the coefficients c_i minimize |sum_i c_i r_i|^2 subject to sum_i c_i = 1.
-// For a single history entry this reduces to plain linear mixing, x + alpha * r.
+// For a single history entry this reduces to plain linear mixing, x + alpha * r. The extrapolation
+// starts as soon as two residuals are stored, i.e. from the second mix() call on; max_history only
+// caps the number of entries that are kept, it is not a warm-up length.
 //
 // Inner product: the plain Euclidean one over all elements, A_ij = sum_k r_i(k) r_j(k).  There is
 // deliberately no frequency weighting and no frequency cutoff: every element of the self-energy
@@ -227,11 +229,13 @@ public:
     bool use_diis = false;
     std::vector<double> coefficients;
     last_clipped_ = false;
-    // The first max_history - 1 iterations are plain linear mixing steps that fill the history.
-    // With fewer entries than max_history the constrained least-squares problem has no redundancy,
-    // so the coefficients would be fixed by the noise of the individual residuals rather than by
-    // their common trend. max_history == 1 disables the extrapolation entirely.
-    if (config_.max_history > 1 && static_cast<int>(history_.size()) >= config_.max_history &&
+    // Extrapolate as soon as two residuals are stored: two residuals already span the direction in
+    // which the fixed point is approached, and the DCA runs this mixer is used for have short
+    // iteration budgets (a handful of iterations), which would otherwise be spent mostly on plain
+    // linear steps. The history therefore grows from two entries up to max_history; the pop_front
+    // above drops the oldest one. A single residual carries no direction, and max_history == 1
+    // disables the extrapolation entirely.
+    if (config_.max_history > 1 && static_cast<int>(history_.size()) >= 2 &&
         solveCoefficients(coefficients))
       use_diis = clipCoefficients(coefficients);
 

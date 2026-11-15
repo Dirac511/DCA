@@ -174,9 +174,11 @@ private:
 
   SelfEnergyMixer self_energy_mixer_;
 
-  // L2 residual of the previous iteration, used to detect that the Anderson extrapolation started
-  // to increase it again, and the resulting stop request.
-  double previous_L2_error_ = 0.;
+  // Number of consecutive iterations that failed to improve the best residual by the required
+  // amount. The iteration has reached its noise floor once this counter reaches its limit, and that
+  // is what stops the DCA loop. A single increase of L2 does not stop it: near the plateau the
+  // residual is dominated by the noise of the measurements.
+  int stagnant_iterations_ = 0;
   bool stop_requested_ = false;
   // DCA iteration in which best_L2_error_ was measured, i.e. the iteration whose result is written
   // to the output when the loop is stopped. -1 means no entry yet.
@@ -274,7 +276,7 @@ void CtauxClusterSolver<device_t, Parameters, Data>::initialize(int dca_iteratio
 
   if (dca_iteration == 0) {
     self_energy_mixer_.reset();
-    previous_L2_error_ = 0.;
+    stagnant_iterations_ = 0;
     stop_requested_ = false;
     best_L2_error_ = std::numeric_limits<double>::infinity();
     best_dca_iteration_ = -1;
@@ -934,13 +936,25 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
   // data_.Sigma_cluster, i.e. the output of the previous iteration, so storing it together with
   // this value gives a consistent (Sigma, L2) pair to fall back to.
   //
-  // best_Sigma_ is overwritten with the mixed self-energy further down, once the mixer has run:
-  // that is the self-energy the DCA loop would have written for this iteration, i.e. the one that
-  // the density and the chemical potential of this iteration are evaluated with. The input
-  // self-energy is only kept as a fallback for the iteration that stops the loop, because the
-  // mixing is skipped there.
-  const bool new_best = L2_error < best_L2_error_;
-  if (new_best) {
+  // best_Sigma_ is then overwritten with the mixed self-energy further down, once the mixer has
+  // run: that is the self-energy the DCA loop writes for this iteration, and the one the density
+  // and the chemical potential of this iteration are evaluated with.
+  //
+  // Only a step that clears required_improvement becomes the new best. Near the noise floor the
+  // residual wanders by O(10 %), and such a step must neither replace the saved state nor end the
+  // run. It also keeps the saved iteration equal to the last row of the output: the iteration that
+  // stops the loop never snapshots, so clear_after() in the DCA loop truncates the output exactly
+  // after a row that was written.
+  constexpr double required_improvement = 0.10;
+  constexpr int max_stagnant_iterations = 2;
+  constexpr double divergence_factor = 3.;
+
+  const double best_before = best_L2_error_;
+
+  const bool improved = L2_error < (1. - required_improvement) * best_before;
+  stagnant_iterations_ = improved ? 0 : stagnant_iterations_ + 1;
+
+  if (improved) {
     best_L2_error_ = L2_error;
     best_dca_iteration_ = dca_iteration_;
     best_Sigma_ = data_.Sigma_cluster;
@@ -959,15 +973,20 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
       best_G_r_w_error_ = data_.get_G_r_w_error();
   }
 
-  // Stop as soon as the residual grows again. This is the only criterion and it applies to both
-  // mixing schemes: whatever caused the growth, the previous iteration had the smaller residual,
-  // so continuing would only move away from the fixed point. The comparison is made against the
-  // previous iteration, which is the only linear reference available: evaluating both variants
-  // would require an additional QMC run. The criterion has no tolerance: the first increase stops
-  // the loop.
-  const bool regression = previous_L2_error_ > 0. && L2_error > previous_L2_error_;
+  // Two independent conditions stop the loop; neither of them reacts to a single increase of L2.
+  //
+  // stagnation: the residual no longer improves above the noise of the measurements, i.e. the
+  //   iteration has reached its noise floor. Up to max_stagnant_iterations such steps in a row are
+  //   tolerated, so that one unlucky set of measurements does not end the run.
+  //
+  // divergence: the residual left the neighbourhood of the fixed point by more than a factor
+  //   divergence_factor. A plateau fluctuates by O(10 %), so this is not noise but a broken step,
+  //   e.g. a chemical potential or double-counting update that moved the state somewhere else. It
+  //   is evaluated separately only to stop one iteration earlier than the stagnation criterion.
+  const bool plateau = stagnant_iterations_ >= max_stagnant_iterations;
+  const bool diverged = std::isfinite(best_before) && L2_error > divergence_factor * best_before;
 
-  if (regression) {
+  if (plateau || diverged) {
     stop_requested_ = true;
     // Discard the step of this iteration: the output must be the best iteration, not the one that
     // made L2 grow. best_Sigma_ is the mixed self-energy of the saved iteration and carries the
@@ -998,15 +1017,20 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
       // together with the restored self-energy, so clear them instead.
       data_.get_G_r_w_error() = 0.;
     if (concurrency_.id() == concurrency_.first()) {
-      std::cout << "\n\t\t iteration " << (dca_iteration_ + 1) << ": stopping, L2 increased from "
-                << previous_L2_error_ << " to " << L2_error << "\n\t\t restoring iteration "
-                << (best_dca_iteration_ + 1) << " as the final result (L2 = " << best_L2_error_
-                << ", sign = " << best_sign_ << ", <k> = " << best_expansion_order_
-                << ") and stopping the DCA loop\n";
+      std::cout << "\n\t\t iteration " << (dca_iteration_ + 1) << ": stopping, ";
+      if (diverged)
+        std::cout << "L2 exceeded " << divergence_factor << " x the saved best (L2 = " << L2_error
+                  << ", best = " << best_L2_error_ << ")";
+      else
+        std::cout << "no " << 100. * required_improvement << " % improvement for "
+                  << stagnant_iterations_ << " iterations (L2 = " << L2_error
+                  << ", best = " << best_L2_error_ << ")";
+      std::cout << "\n\t\t restoring iteration " << (best_dca_iteration_ + 1)
+                << " as the final result (L2 = " << best_L2_error_ << ", sign = " << best_sign_
+                << ", <k> = " << best_expansion_order_ << ") and stopping the DCA loop\n";
     }
     return best_L2_error_;
   }
-  previous_L2_error_ = L2_error;
 
   // alpha == 0 freezes the self-energy: the iteration measures at the current Sigma and does not
   // update it. That is what a fixed-self-energy measurement needs, e.g. a one-iteration four-point
@@ -1036,14 +1060,12 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
         std::cout << "\n\t\t Anderson mixing: m = " << self_energy_mixer_.historySize()
                   << ", |r| = " << self_energy_mixer_.lastResidualNorm()
                   << ", |sum c_i r_i| = " << self_energy_mixer_.lastCombinedResidualNorm();
-        // The extrapolation only starts once the history is full, so a linear step with fewer
-        // entries is the warm-up of a fresh history, not a failed extrapolation.
-        if (self_energy_mixer_.lastFellBack()) {
-          const int history_size = static_cast<int>(self_energy_mixer_.historySize());
-          std::cout << (history_size < parameters_.get_self_energy_mixing_history_size()
-                            ? " (warm-up, linear step)"
-                            : " (fallback, linear step)");
-        }
+        // With two stored residuals the mixer extrapolates, so a linear step is either the very
+        // first one (a single residual carries no direction) or the numerical fallback of the
+        // coefficient solve.
+        if (self_energy_mixer_.lastFellBack())
+          std::cout << (self_energy_mixer_.historySize() < 2 ? " (first iteration, linear step)"
+                                                             : " (fallback, linear step)");
         if (self_energy_mixer_.lastCoefficientsClipped())
           std::cout << " (coefficients clipped)";
         std::cout << "\n\t\t c = [";
@@ -1066,7 +1088,7 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
   // writes and what the density and the chemical potential of this iteration are evaluated with.
   // Saving the input self-energy instead would put a state into the output whose density differs
   // from the recorded one by the size of a mixing step.
-  if (new_best)
+  if (improved)
     best_Sigma_ = data_.Sigma;
 
   if (concurrency_.id() == concurrency_.first()) {
