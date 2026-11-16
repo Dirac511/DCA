@@ -3,5 +3,4 @@ add_subdirectory(dca_analysis)
 add_subdirectory(dca_step)
 add_subdirectory(domains)
 
-add_library(enumerations STATIC four_point_type.cpp error_computation_type.cpp
-                             self_energy_mixing_scheme.cpp)
+add_library(enumerations STATIC four_point_type.cpp error_computation_type.cpp)

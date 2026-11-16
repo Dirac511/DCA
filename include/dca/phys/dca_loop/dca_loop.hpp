@@ -17,6 +17,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 #include "dca/function/domains.hpp"
 #include "dca/io/hdf5/hdf5_writer.hpp"
@@ -38,6 +40,27 @@
 namespace dca {
 namespace phys {
 // dca::phys::
+
+namespace dca_loop_detail {
+// Calls solver.discard_last_iteration() if the solver provides it, does nothing otherwise.
+template <typename T>
+auto has_discard(int) -> decltype(std::declval<T&>().discard_last_iteration(), std::true_type{});
+template <typename>
+std::false_type has_discard(...);
+
+template <typename T>
+void discard_last_iteration(T& solver, std::true_type) {
+  solver.discard_last_iteration();
+}
+
+template <typename T>
+void discard_last_iteration(T&, std::false_type) {}
+
+template <typename T>
+void discard_last_iteration(T& solver) {
+  discard_last_iteration(solver, decltype(has_discard<T>(0)){});
+}
+}  // namespace dca_loop_detail
 
 template <typename ParametersType, typename DcaDataType, typename MCIntegratorType>
 class DcaLoop {
@@ -89,7 +112,7 @@ protected:
 
   void perform_lattice_mapping();
 
-  void update_DCA_loop_data_functions(int DCA_iteration, const bool record = true);
+  void update_DCA_loop_data_functions(int DCA_iteration);
 
   ParametersType& parameters;
   DcaDataType& MOMS;
@@ -184,7 +207,17 @@ void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::initialize() {
 
 template <typename ParametersType, typename DcaDataType, typename MCIntegratorType>
 void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::execute() {
+  // A linearly convergent iteration decreases |Sigma_QMC - Sigma_cg| monotonically. A rise above
+  // the sampling scatter ends the run: the rebounding step is discarded, the previous one is kept.
+  constexpr double rebound_margin = 1.1;
+  double L2_previous = -1.;
+  decltype(MOMS.Sigma) Sigma_accepted;
+  double mu_accepted = parameters.get_chemical_potential();
+
   for (int i = 0; i < parameters.get_dca_iterations(); i++) {
+    Sigma_accepted = MOMS.Sigma;
+    mu_accepted = parameters.get_chemical_potential();
+
     adjust_chemical_potential();
 
     perform_cluster_mapping();
@@ -199,16 +232,24 @@ void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::execute() {
 
     perform_lattice_mapping();
 
-    // A negative value is the stop signal of the cluster solver: the L2 residual grew again, so
-    // further iterations would only move away from the fixed point. The solver restored the saved
-    // iteration and did not write the row of the rejected one, so this row is skipped here as well.
-    // The density is still recomputed, because MOMS.orbital_occupancy has to describe the restored
-    // self-energy that is written to the output.
-    const bool rejected = L2_Sigma_difference < 0.;
-    update_DCA_loop_data_functions(i, !rejected);
+    if (i > 0 && L2_Sigma_difference > rebound_margin * L2_previous) {
+      // Roll back to the kept iteration and rebuild what was derived from the discarded one.
+      MOMS.Sigma = Sigma_accepted;
+      parameters.get_chemical_potential() = mu_accepted;
+      perform_lattice_mapping();
+      dca_loop_detail::discard_last_iteration(monte_carlo_integrator_);
+      update_DCA_loop_data_functions(i - 1);
+      DCA_info_struct.clear_after(i - 1);
 
-    if (rejected)
+      if (concurrency.id() == concurrency.first())
+        std::cout << "\n\n\t DCA loop stopped at iteration " << i
+                  << ": |Sigma_QMC - Sigma_cg|_2 rose " << L2_previous << " -> "
+                  << L2_Sigma_difference << ", iteration " << i - 1 << " kept\n\n";
       break;
+    }
+
+    update_DCA_loop_data_functions(i);
+    L2_previous = L2_Sigma_difference;
 
     if (L2_Sigma_difference <
         parameters.get_dca_accuracy())  // set the acquired accuracy on |Sigma_QMC - Sigma_cg|
@@ -343,13 +384,10 @@ void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::perform_lattice_map
 
 template <typename ParametersType, typename DcaDataType, typename MCIntegratorType>
 void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::update_DCA_loop_data_functions(
-    int i, const bool record) {
-  // Always recomputed, also for a rejected iteration: MOMS.orbital_occupancy feeds the final
-  // single-particle properties and therefore has to describe the restored self-energy.
+    int i) {
+  // MOMS.orbital_occupancy feeds the final single-particle properties, so it has to describe the
+  // self-energy that was written for this iteration.
   const double density = update_chemical_potential_obj.compute_density();
-
-  if (!record)
-    return;
 
   DCA_info_struct.density(i) = density;
   DCA_info_struct.chemical_potential(i) = parameters.get_chemical_potential();

@@ -212,29 +212,15 @@ Either the name of the file with the initial self-energy (usually the <tt>main_d
 Number of DCA<sup>(+)</sup> iterations.
 
 `"accuracy"`: double (0.)  
-Stop the DCA<sup>(+)</sup> loop if this accuracy has been reached. The accuracy is compared with the norm of the fixed-point residual &Sigma;<sub>QMC</sub> - &Sigma;<sub>coarsegrained</sub>, evaluated **before** the mixing step, so that it is independent of the mixing scheme.  
-Earlier, the norm of &Sigma;<sub>mixed</sub> - &Sigma;<sub>coarsegrained</sub> was used instead, i.e. the change produced by the mixer: for linear mixing that is &alpha; times the residual, and for "ANDERSON" it additionally contained the extrapolation step, so the two schemes were not comparable and the loop could declare convergence while the residual was still large.  
-Consequently, for linear mixing the value reported now is a factor 1/&alpha; larger than before, and the accuracy of an existing input file has to be re-calibrated.
+Stop the DCA<sup>(+)</sup> loop once the fixed-point residual &Sigma;<sub>QMC</sub> - &Sigma;<sub>coarsegrained</sub> at the lowest Matsubara frequency falls below this value. The residual is evaluated before the mixing step, so it describes the self-consistency and not the update. For &alpha; = 1 this is the value the loop used before; for &alpha; &lt; 1 it is a factor 1/&alpha; larger than the old update norm. This is the only convergence criterion; otherwise the loop runs "iterations" times.
 
 `"self-energy-mixing-factor":` double (1.)  
-&Sigma;<sup>(n)</sup> = &alpha; &Sigma;<sup>(n)</sup><sub>QMC</sub> + (1-&alpha;)&Sigma;<sup>(n-1)</sup><sub>coarsegrained</sub>, where &alpha; is the self-energy mixing factor. For "ANDERSON" it damps the extrapolated step; &alpha; = 1 corresponds to the undamped Anderson/Pulay mixer.  
-&alpha; = 0 freezes the self-energy: every iteration measures at the current &Sigma; and does not update it, which is what a fixed-self-energy measurement needs (for example a one-iteration four-point run started from a converged sp file). Such a run never converges the self-consistency loop, so it is reported explicitly in the log. Negative values are rejected.  
+&Sigma;<sup>(n)</sup> = &alpha; &Sigma;<sup>(n)</sup><sub>QMC</sub> + (1-&alpha;)&Sigma;<sup>(n-1)</sup><sub>coarsegrained</sub>; &alpha; = 1 replaces the self-energy by the QMC result.  
+&alpha; = 0 freezes the self-energy: every iteration measures at the current &Sigma; without updating it. Negative values are rejected.
 
-`"mixing-scheme":` string ("LINEAR")  
-Scheme used to mix the cluster self-energy. "LINEAR": standard linear mixing, &Sigma;<sup>(n)</sup> = &alpha; &Sigma;<sup>(n)</sup><sub>QMC</sub> + (1-&alpha;)&Sigma;<sup>(n-1)</sup><sub>coarsegrained</sub>. "ANDERSON": Anderson/Pulay (DIIS) acceleration of the same fixed-point iteration.  
-Note that only the CT-AUX cluster solver implements "ANDERSON"; the other solvers ignore the scheme and keep mixing linearly.
-
-`"mixing-history-size":` integer (8)  
-Number of previous self-energy iterations kept by the Anderson/Pulay mixer. Ignored if "mixing-scheme" is "LINEAR". Values below 1 are rejected.  
-The extrapolation starts as soon as two iterations are stored, so this is only the length of the window, not a warm-up: with the short DCA runs the mixer would otherwise spend most of the iteration budget on plain linear steps.
-
-`"mixing-regularization":` double (1.e-8)  
-Relative Tikhonov regularization of the linear system that determines the Anderson/Pulay coefficients. It only acts when the residual history becomes (nearly) linearly dependent, which happens close to convergence and whenever the iteration stalls; larger values pull the coefficients towards the uniform average (robust but less accelerative). Ignored if "mixing-scheme" is "LINEAR".  
-Earlier this was a hard-coded constant with the same value (1.e-8) and could not be changed.
-
-`"mixing-max-coefficient":` double (10.)  
-Clipping bound for the Anderson/Pulay coefficients; the clipped coefficients are renormalized such that they still sum to one. Values below 1 are rejected. Ignored if "mixing-scheme" is "LINEAR".  
-Earlier there was no bound at all, so coefficients of order 1.e2 with alternating signs could occur; set this parameter to a very large value (e.g. 1.e30) to reproduce that behavior.
+`"self-energy-over-relaxation":` bool (false)
+Adapt the factor of the linear mixing step to the iteration instead of using it as a constant. &Sigma;<sup>(n)</sup> = &Sigma;<sub>cg</sub> + a ( &Sigma;<sub>QMC</sub> - &Sigma;<sub>cg</sub> ) with a &gt; 1 removes more than the plain step, and a = 1 / (1 - &lambda;) removes the dominant mode of the iteration in a single step. The eigenvalue &lambda; is recovered from the residuals themselves, through the signed projection p = &lt;r<sub>n</sub>, r<sub>n-1</sub>&gt; / |r<sub>n-1</sub>|<sup>2</sup> = 1 - a<sub>n-1</sub>(1 - &lambda;). The factor is clipped to [1, 2], moved towards its target with a damping of 0.4, held at 1 for the first two iterations, and reduced by 0.7 after two iterations in which |r| did not drop; the last rule is what keeps it from amplifying the statistical noise once the residual has reached its floor.
+Only the CT-AUX cluster solver implements it. When it is enabled, the adapted factor a &isin; [1, 2] multiplies "self-energy-mixing-factor": the step is &alpha; a, so &alpha; remains the base damping of the update, and &alpha; = 0 still freezes the self-energy.
 
 `"interacting-orbitals":` array of integers ([0])  
 Indices of orbitals that are treated interacting.  
@@ -291,8 +277,6 @@ Number of threads used in the HTS-solver.
             "iterations": 3,
             "accuracy": 1.e-3,
             "self-energy-mixing-factor": 1.0,
-            "mixing-scheme": "ANDERSON",
-            "mixing-history-size": 3,
             "interacting-orbitals": [0],
 
             "do-finite-size-QMC": false,

@@ -19,8 +19,6 @@
 #include <string>
 #include <vector>
 
-#include "dca/phys/parameters/self_energy_mixing_scheme.hpp"
-
 namespace dca {
 namespace phys {
 namespace params {
@@ -33,10 +31,7 @@ public:
         dca_iterations_(1),
         dca_accuracy_(0.),
         self_energy_mixing_factor_(1.),
-        self_energy_mixing_scheme_(SelfEnergyMixingScheme::LINEAR),
-        self_energy_mixing_history_size_(8),
-        self_energy_mixing_regularization_(1.e-8),
-        self_energy_mixing_max_coefficient_(10.),
+        self_energy_over_relaxation_(false),
         interacting_orbitals_{0},
 
         do_finite_size_qmc_(false),
@@ -79,17 +74,8 @@ public:
   double get_self_energy_mixing_factor() const {
     return self_energy_mixing_factor_;
   }
-  SelfEnergyMixingScheme get_self_energy_mixing_scheme() const {
-    return self_energy_mixing_scheme_;
-  }
-  int get_self_energy_mixing_history_size() const {
-    return self_energy_mixing_history_size_;
-  }
-  double get_self_energy_mixing_regularization() const {
-    return self_energy_mixing_regularization_;
-  }
-  double get_self_energy_mixing_max_coefficient() const {
-    return self_energy_mixing_max_coefficient_;
+  bool get_self_energy_over_relaxation() const {
+    return self_energy_over_relaxation_;
   }
   const std::vector<int>& get_interacting_orbitals() const {
     return interacting_orbitals_;
@@ -133,15 +119,7 @@ private:
   int dca_iterations_;
   double dca_accuracy_;
   double self_energy_mixing_factor_;
-  SelfEnergyMixingScheme self_energy_mixing_scheme_;
-  int self_energy_mixing_history_size_;
-  // Anderson/Pulay mixer settings. In the earlier prototype these were hard-coded constants: the
-  // regularization was 1.e-8 and the coefficients had no bound. They are exposed as parameters so
-  // that the old behavior can be reproduced exactly (regularization 1.e-8, max coefficient 1.e30)
-  // or tuned. The DIIS residual norm is the plain unweighted one; there is deliberately no
-  // frequency cutoff parameter.
-  double self_energy_mixing_regularization_;
-  double self_energy_mixing_max_coefficient_;
+  bool self_energy_over_relaxation_;
   std::vector<int> interacting_orbitals_;
 
   bool do_finite_size_qmc_;
@@ -169,10 +147,7 @@ int DcaParameters::getBufferSize(const Concurrency& concurrency) const {
   buffer_size += concurrency.get_buffer_size(dca_iterations_);
   buffer_size += concurrency.get_buffer_size(dca_accuracy_);
   buffer_size += concurrency.get_buffer_size(self_energy_mixing_factor_);
-  buffer_size += concurrency.get_buffer_size(self_energy_mixing_scheme_);
-  buffer_size += concurrency.get_buffer_size(self_energy_mixing_history_size_);
-  buffer_size += concurrency.get_buffer_size(self_energy_mixing_regularization_);
-  buffer_size += concurrency.get_buffer_size(self_energy_mixing_max_coefficient_);
+  buffer_size += concurrency.get_buffer_size(self_energy_over_relaxation_);
   buffer_size += concurrency.get_buffer_size(interacting_orbitals_);
   buffer_size += concurrency.get_buffer_size(do_finite_size_qmc_);
   buffer_size += concurrency.get_buffer_size(k_mesh_recursion_);
@@ -196,10 +171,7 @@ void DcaParameters::pack(const Concurrency& concurrency, char* buffer, int buffe
   concurrency.pack(buffer, buffer_size, position, dca_iterations_);
   concurrency.pack(buffer, buffer_size, position, dca_accuracy_);
   concurrency.pack(buffer, buffer_size, position, self_energy_mixing_factor_);
-  concurrency.pack(buffer, buffer_size, position, self_energy_mixing_scheme_);
-  concurrency.pack(buffer, buffer_size, position, self_energy_mixing_history_size_);
-  concurrency.pack(buffer, buffer_size, position, self_energy_mixing_regularization_);
-  concurrency.pack(buffer, buffer_size, position, self_energy_mixing_max_coefficient_);
+  concurrency.pack(buffer, buffer_size, position, self_energy_over_relaxation_);
   concurrency.pack(buffer, buffer_size, position, interacting_orbitals_);
   concurrency.pack(buffer, buffer_size, position, do_finite_size_qmc_);
   concurrency.pack(buffer, buffer_size, position, k_mesh_recursion_);
@@ -221,10 +193,7 @@ void DcaParameters::unpack(const Concurrency& concurrency, char* buffer, int buf
   concurrency.unpack(buffer, buffer_size, position, dca_iterations_);
   concurrency.unpack(buffer, buffer_size, position, dca_accuracy_);
   concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_factor_);
-  concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_scheme_);
-  concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_history_size_);
-  concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_regularization_);
-  concurrency.unpack(buffer, buffer_size, position, self_energy_mixing_max_coefficient_);
+  concurrency.unpack(buffer, buffer_size, position, self_energy_over_relaxation_);
   concurrency.unpack(buffer, buffer_size, position, interacting_orbitals_);
   concurrency.unpack(buffer, buffer_size, position, do_finite_size_qmc_);
   concurrency.unpack(buffer, buffer_size, position, k_mesh_recursion_);
@@ -249,11 +218,6 @@ void DcaParameters::readWrite(ReaderOrWriter& reader_or_writer) {
     }
   };
 
-  // The self-energy mixing scheme is converted only after the try block below, so that an unknown
-  // name is reported to the user instead of being swallowed by the exception handling.
-  bool has_mixing_scheme = false;
-  std::string mixing_scheme_str;
-
   try {
     reader_or_writer.open_group("DCA");
 
@@ -261,26 +225,7 @@ void DcaParameters::readWrite(ReaderOrWriter& reader_or_writer) {
     try_to_read("iterations", dca_iterations_);
     try_to_read("accuracy", dca_accuracy_);
     try_to_read("self-energy-mixing-factor", self_energy_mixing_factor_);
-
-    // Read the self-energy mixing scheme. A missing entry keeps the default, but an unknown name
-    // must not be silently replaced by the default (see the conversion after the try block).
-    mixing_scheme_str = toString(self_energy_mixing_scheme_);
-    try {
-      reader_or_writer.execute("mixing-scheme", mixing_scheme_str);
-      has_mixing_scheme = true;
-    }
-    catch (const std::exception& r_e) {
-    }
-
-    // Numerical settings of the Anderson/Pulay mixer. A file written for the earlier prototype
-    // does not contain them and keeps the defaults below. Those defaults match the old hard-coded
-    // value for the regularization (1.e-8), but the coefficient bound (10) is new: the old code
-    // had no bound at all. Setting "mixing-max-coefficient" to a very large value reproduces the
-    // old behavior exactly. The DIIS residual norm is the plain unweighted one, so there is no
-    // "mixing-residual-weight-cutoff" entry anymore.
-    try_to_read("mixing-history-size", self_energy_mixing_history_size_);
-    try_to_read("mixing-regularization", self_energy_mixing_regularization_);
-    try_to_read("mixing-max-coefficient", self_energy_mixing_max_coefficient_);
+    try_to_read("self-energy-over-relaxation", self_energy_over_relaxation_);
 
     try_to_read("interacting-orbitals", interacting_orbitals_);
 
@@ -319,20 +264,13 @@ void DcaParameters::readWrite(ReaderOrWriter& reader_or_writer) {
   catch (const std::exception& r_e) {
   }
 
-  if (has_mixing_scheme)
-    self_energy_mixing_scheme_ = stringToSelfEnergyMixingScheme(mixing_scheme_str);
-
   // Check read parameters for consistency.
   if (reader_or_writer.is_reader()) {
     if (do_finite_size_qmc_ && do_dca_plus_)
       throw std::logic_error("Finite-size QMC and DCA+ are mutually exclusive options.");
 
-    if (self_energy_mixing_history_size_ < 1)
-      throw std::logic_error("The self-energy mixing history size must be at least 1.");
-    if (self_energy_mixing_regularization_ < 0.)
-      throw std::logic_error("The self-energy mixing regularization must not be negative.");
-    if (self_energy_mixing_max_coefficient_ < 1.)
-      throw std::logic_error("The maximal self-energy mixing coefficient must be at least 1.");
+    if (self_energy_mixing_factor_ < 0.)
+      throw std::logic_error("The self-energy mixing factor must not be negative.");
   }
 }
 
