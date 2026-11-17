@@ -212,15 +212,11 @@ Either the name of the file with the initial self-energy (usually the <tt>main_d
 Number of DCA<sup>(+)</sup> iterations.
 
 `"accuracy"`: double (0.)  
-Stop the DCA<sup>(+)</sup> loop once the fixed-point residual &Sigma;<sub>QMC</sub> - &Sigma;<sub>coarsegrained</sub> at the lowest Matsubara frequency falls below this value. The residual is evaluated before the mixing step, so it describes the self-consistency and not the update. For &alpha; = 1 this is the value the loop used before; for &alpha; &lt; 1 it is a factor 1/&alpha; larger than the old update norm. This is the only convergence criterion; otherwise the loop runs "iterations" times.
+Stop the DCA<sup>(+)</sup> loop once the fixed-point residual &Sigma;<sub>QMC</sub> - &Sigma;<sub>coarsegrained</sub> at the lowest Matsubara frequency falls below this value. The residual is evaluated before the mixing step, so it describes the self-consistency and not the update. The loop also ends when the residual rises above 1.1 times its previous value: that iteration is discarded and the previous one is kept. Otherwise the loop runs "iterations" times.
 
 `"self-energy-mixing-factor":` double (1.)  
 &Sigma;<sup>(n)</sup> = &alpha; &Sigma;<sup>(n)</sup><sub>QMC</sub> + (1-&alpha;)&Sigma;<sup>(n-1)</sup><sub>coarsegrained</sub>; &alpha; = 1 replaces the self-energy by the QMC result.  
 &alpha; = 0 freezes the self-energy: every iteration measures at the current &Sigma; without updating it. Negative values are rejected.
-
-`"self-energy-over-relaxation":` bool (false)
-Adapt the factor of the linear mixing step to the iteration instead of using it as a constant. &Sigma;<sup>(n)</sup> = &Sigma;<sub>cg</sub> + a ( &Sigma;<sub>QMC</sub> - &Sigma;<sub>cg</sub> ) with a &gt; 1 removes more than the plain step, and a = 1 / (1 - &lambda;) removes the dominant mode of the iteration in a single step. The eigenvalue &lambda; is recovered from the residuals themselves, through the signed projection p = &lt;r<sub>n</sub>, r<sub>n-1</sub>&gt; / |r<sub>n-1</sub>|<sup>2</sup> = 1 - a<sub>n-1</sub>(1 - &lambda;). The factor is clipped to [1, 2], moved towards its target with a damping of 0.4, held at 1 for the first two iterations, and reduced by 0.7 after two iterations in which |r| did not drop; the last rule is what keeps it from amplifying the statistical noise once the residual has reached its floor.
-Only the CT-AUX cluster solver implements it. When it is enabled, the adapted factor a &isin; [1, 2] multiplies "self-energy-mixing-factor": the step is &alpha; a, so &alpha; remains the base damping of the update, and &alpha; = 0 still freezes the self-energy.
 
 `"interacting-orbitals":` array of integers ([0])  
 Indices of orbitals that are treated interacting.  

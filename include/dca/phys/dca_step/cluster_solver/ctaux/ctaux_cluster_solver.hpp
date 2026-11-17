@@ -131,11 +131,6 @@ private:
   // the lowest Matsubara frequency, evaluated before the update.
   double mix_self_energy(double alpha);
 
-  // Step of the linear mixing: alpha * kappa, with kappa in [1, 2] adapted to the iteration.
-  double over_relaxation_factor(const std::complex<double>* const qmc,
-                                const std::complex<double>* const in, const int size,
-                                const double alpha);
-
 protected:
   Parameters& parameters_;
   Data& data_;
@@ -155,15 +150,6 @@ private:
 
   func::function<std::complex<double>, NuNuKClusterWDmn> Sigma_old_;
   func::function<std::complex<double>, NuNuKClusterWDmn> Sigma_new_;
-
-  // State of the adaptive over-relaxation of the mixing step. Everything is local and identical on
-  // every rank, so no reduction is involved.
-  std::vector<std::complex<double>> over_relaxation_residual_;
-  std::vector<std::complex<double>> over_relaxation_residual_previous_;
-  double over_relaxation_factor_ = 1.;        // kappa of the previous step, in [1, 2]
-  double over_relaxation_step_ = 1.;          // alpha * kappa, the step actually used last time
-  double over_relaxation_norm_previous_ = 0.; // |r_(n-1)|^2
-  int over_relaxation_no_drop_ = 0;
 
   // Average sign of the QMC run of this iteration, reduced over all ranks in
   // collect_measurements(). It is the one value used by the log message and the output file, so
@@ -227,15 +213,6 @@ void CtauxClusterSolver<device_t, Parameters, Data>::initialize(int dca_iteratio
   dca_iteration_ = dca_iteration;
 
   Sigma_old_ = data_.Sigma;
-
-  if (dca_iteration == 0) {
-    over_relaxation_residual_.clear();
-    over_relaxation_residual_previous_.clear();
-    over_relaxation_factor_ = 1.;
-    over_relaxation_step_ = 1.;
-    over_relaxation_norm_previous_ = 0.;
-    over_relaxation_no_drop_ = 0;
-  }
 
   accumulator_.initialize(dca_iteration_);
 
@@ -846,72 +823,6 @@ void CtauxClusterSolver<device_t, Parameters, Data>::adjust_self_energy_for_doub
 }
 
 template <dca::linalg::DeviceType device_t, class Parameters, class Data>
-double CtauxClusterSolver<device_t, Parameters, Data>::over_relaxation_factor(
-    const std::complex<double>* const qmc, const std::complex<double>* const in, const int size,
-    const double alpha) {
-  // r = Sigma_QMC - Sigma_cg of this iteration.
-  over_relaxation_residual_.resize(size);
-  double norm_squared = 0.;
-  for (int l = 0; l < size; ++l) {
-    over_relaxation_residual_[l] = qmc[l] - in[l];
-    norm_squared += std::norm(over_relaxation_residual_[l]);
-  }
-  const double norm = std::sqrt(norm_squared);
-
-  // First residual only sets the reference.
-  if (over_relaxation_residual_previous_.empty()) {
-    over_relaxation_residual_previous_ = over_relaxation_residual_;
-    over_relaxation_norm_previous_ = norm_squared;
-    over_relaxation_factor_ = 1.;
-    over_relaxation_step_ = alpha;
-    return alpha;
-  }
-
-  // p = <r_n, r_(n-1)>/|r_(n-1)|^2 = 1 - a_(n-1)(1 - lambda), solved for lambda with the step a that
-  // was actually applied. Signed on purpose: a norm ratio cannot tell an undershoot from an overshoot.
-  double projection = 0.;
-  if (over_relaxation_norm_previous_ > 0.) {
-    double dot = 0.;
-    for (int l = 0; l < size; ++l)
-      dot += std::real(std::conj(over_relaxation_residual_previous_[l]) *
-                       over_relaxation_residual_[l]);
-    projection = dot / over_relaxation_norm_previous_;
-  }
-  double contraction =
-      (over_relaxation_step_ > 0.) ? 1. - (1. - projection) / over_relaxation_step_ : 0.;
-  if (!std::isfinite(contraction))
-    contraction = 0.;
-  contraction = std::min(std::max(contraction, 0.), 0.9);
-
-  // 80% of the optimum 1/(1 - lambda), approached with a 40% step: the full factor of the slowest
-  // mode makes the faster ones oscillate.
-  const double target = std::min(std::max(0.8 / (1. - contraction), 1.), 2.);
-  double factor = over_relaxation_factor_ + 0.4 * (target - over_relaxation_factor_);
-  factor = std::min(std::max(factor, 1.), 2.);
-
-  // |r| stopped dropping (noise floor, moving chemical potential): pull kappa back to 1, i.e. to the
-  // plain damped step alpha, instead of amplifying it.
-  const double norm_previous = std::sqrt(over_relaxation_norm_previous_);
-  if (norm <= 0.95 * norm_previous)
-    over_relaxation_no_drop_ = 0;
-  else if (++over_relaxation_no_drop_ >= 2) {
-    factor = std::max(1., 0.7 * factor);
-    over_relaxation_no_drop_ = 0;
-  }
-
-  // Start-up only measures: the chemical potential is still moving.
-  if (dca_iteration_ < 2)
-    factor = 1.;
-
-  const double step = std::min(std::max(alpha * factor, 0.), 2.);
-  over_relaxation_factor_ = factor;
-  over_relaxation_step_ = step;
-  over_relaxation_norm_previous_ = norm_squared;
-  over_relaxation_residual_previous_.swap(over_relaxation_residual_);
-  return step;
-}
-
-template <dca::linalg::DeviceType device_t, class Parameters, class Data>
 double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double alpha) {
   symmetrize::execute(data_.Sigma, data_.H_symmetry);
   symmetrize::execute(data_.Sigma_cluster, data_.H_symmetry);
@@ -938,20 +849,12 @@ double CtauxClusterSolver<device_t, Parameters, Data>::mix_self_energy(double al
                                      std::abs(data_.Sigma(l1, l1, k_ind, w_ind) -
                                               data_.Sigma_cluster(l1, l1, k_ind, w_ind)));
 
-  // Sigma <- step * Sigma_QMC + (1 - step) * Sigma_cg, with step = alpha or, with
-  // "self-energy-over-relaxation", alpha * kappa (kappa in [1, 2], see over_relaxation_factor()).
+  // Sigma <- alpha * Sigma_QMC + (1 - alpha) * Sigma_cg.
   // alpha = 0 freezes the self-energy.
   if (alpha > 0.) {
     const int size = static_cast<int>(data_.Sigma.size());
-    double step = alpha;
-    if (parameters_.get_self_energy_over_relaxation()) {
-      step =
-          over_relaxation_factor(data_.Sigma.values(), data_.Sigma_cluster.values(), size, alpha);
-      if (concurrency_.id() == concurrency_.first())
-        std::cout << "\n\t\t over-relaxation factor : " << step;
-    }
     for (int l = 0; l < size; l++)
-      data_.Sigma(l) = step * data_.Sigma(l) + (1. - step) * data_.Sigma_cluster(l);
+      data_.Sigma(l) = alpha * data_.Sigma(l) + (1. - alpha) * data_.Sigma_cluster(l);
   }
   else {
     data_.Sigma = data_.Sigma_cluster;
