@@ -132,6 +132,9 @@ public:
   func::function<double, func::dmn_variadic<b, b, r_dmn_t, r_dmn_t>>& get_densitymatrix_A89() {
     return equal_time_accumulator_.get_densitymatrix_A89();
   }
+  func::function<double, func::dmn_variadic<b, b, r_dmn_t, r_dmn_t>>& get_densitymatrix_A1010() {
+    return equal_time_accumulator_.get_densitymatrix_A1010();
+  }
   func::function<double, func::dmn_variadic<b, b, r_dmn_t, t_sp>>& get_spin_XX_chi() {
     return equal_time_accumulator_.get_spin_XX_chi();
   }
@@ -335,6 +338,7 @@ void CtauxAccumulator<device_t, Parameters, Data>::write(Writer& writer) {
     writer.execute(get_magnetic_cluster_moment());
     writer.execute(get_densitymatrix_A77());
     writer.execute(get_densitymatrix_A89());
+    writer.execute(get_densitymatrix_A1010());
     writer.execute(get_spin_XX_chi());
     writer.execute(get_spin_ZZ_chi());
     writer.execute(get_charge_chi());

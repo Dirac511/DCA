@@ -99,6 +99,9 @@ public:
   func::function<double, func::dmn_variadic<b, b, r_dmn_t, r_dmn_t>>& get_densitymatrix_A89() {
     return densitymatrix_A89;
   }
+  func::function<double, func::dmn_variadic<b, b, r_dmn_t, r_dmn_t>>& get_densitymatrix_A1010() {
+    return densitymatrix_A1010;
+  }
   func::function<double, func::dmn_variadic<b, b, r_dmn_t, t_sp>>& get_spin_XX_chi() {
     return spin_XX_chi;
   }
@@ -253,6 +256,7 @@ private:
 
   func::function<double, func::dmn_variadic<b, b, r_dmn_t, r_dmn_t>> densitymatrix_A77;
   func::function<double, func::dmn_variadic<b, b, r_dmn_t, r_dmn_t>> densitymatrix_A89;
+  func::function<double, func::dmn_variadic<b, b, r_dmn_t, r_dmn_t>> densitymatrix_A1010;
 
   func::function<double, func::dmn_variadic<b, b, r_dmn_t, t_sp>> spin_XX_chi;
   func::function<double, func::dmn_variadic<b, b, r_dmn_t, t_sp>> spin_ZZ_chi;
@@ -286,6 +290,7 @@ TpEqualTimeAccumulator<parameters_type, MOMS_type>::TpEqualTimeAccumulator(
       magnetic_cluster_moment("magnetic-cluster-moment"),
       densitymatrix_A77("densitymatrix_A77"),
       densitymatrix_A89("densitymatrix_A89"),
+      densitymatrix_A1010("densitymatrix_A1010"),
       spin_XX_chi("spin-XX-susceptibility"),
       spin_ZZ_chi("spin-ZZ-susceptibility"),
       charge_chi("charge-susceptibility"),
@@ -331,6 +336,7 @@ void TpEqualTimeAccumulator<parameters_type, MOMS_type>::resetAccumulation() {
 
   densitymatrix_A77 = 0;
   densitymatrix_A89 = 0;
+  densitymatrix_A1010 = 0;
 
   spin_XX_chi = 0;
   spin_ZZ_chi = 0;
@@ -882,11 +888,15 @@ void TpEqualTimeAccumulator<parameters_type, MOMS_type>::accumulate_densitymatri
             const double Gdn_ji = G_r_t_dn(j, i);
 
             double A77_val;
+            double A1010_val;
             double A89_val;
 
             if (i == j) {
+
               A77_val = Gup_ii * (1.0 - Gdn_ii);
-              A89_val = std::sqrt(2.0) * (1.0 - Gup_ii) * (1.0 - Gdn_ii);
+              A1010_val = (1 - Gup_ii) * Gdn_ii;
+              A89_val = -1.0 * (1.0 - Gup_ii) * (1.0 - Gdn_ii);
+
             }
             else {
 
@@ -897,11 +907,20 @@ void TpEqualTimeAccumulator<parameters_type, MOMS_type>::accumulate_densitymatri
 
               A77_val = term1_A77 - term2_A77 - term3_A77 + term4_A77;
 
-              A89_val = -1.0 / std::sqrt(2.0) * (Gup_ij * Gdn_ji + Gdn_ij * Gup_ji);
+              const double term1_A1010 = (1.0 - Gup_ii) * (1.0 - Gup_jj) * Gdn_ii * Gdn_jj;
+              const double term2_A1010 = Gup_ji * Gup_ij * Gdn_ii * Gdn_jj;
+              const double term3_A1010 = (1.0 - Gup_ii) * (1.0 - Gup_jj) * Gdn_ij * Gdn_ji;
+              const double term4_A1010 = Gup_ji * Gup_ij * Gdn_ij * Gdn_ji;
+
+              A1010_val = term1_A1010 - term2_A1010 - term3_A1010 + term4_A1010;
+
+              A89_val = -0.5 * (Gup_ji * Gdn_ij + Gup_ij * Gdn_ji);
+
             }
 
             densitymatrix_A77(b_i, b_j, r_i, r_j) += w * A77_val;
             densitymatrix_A89(b_i, b_j, r_i, r_j) += w * A89_val;
+            densitymatrix_A1010(b_i, b_j, r_i, r_j) += w * A1010_val;
           }
         }
       }
@@ -1276,6 +1295,7 @@ void TpEqualTimeAccumulator<parameters_type, MOMS_type>::sumTo(
   other.magnetic_cluster_moment += magnetic_cluster_moment;
   other.densitymatrix_A77 += densitymatrix_A77;
   other.densitymatrix_A89 += densitymatrix_A89;
+  other.densitymatrix_A1010 += densitymatrix_A1010;
   other.spin_XX_chi_accumulated += spin_XX_chi_accumulated;
   other.spin_ZZ_chi_accumulated += spin_ZZ_chi_accumulated;
   other.charge_chi_accumulated += charge_chi_accumulated;

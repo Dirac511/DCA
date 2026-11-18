@@ -486,6 +486,7 @@ void CtauxClusterSolver<device_t, Parameters, Data>::collect_measurements() {
       concurrency_.delayedSum(accumulator_.get_magnetic_cluster_moment());
       concurrency_.delayedSum(accumulator_.get_densitymatrix_A77());
       concurrency_.delayedSum(accumulator_.get_densitymatrix_A89());
+      concurrency_.delayedSum(accumulator_.get_densitymatrix_A1010());
       concurrency_.delayedSum(accumulator_.get_spin_XX_chi());
       concurrency_.delayedSum(accumulator_.get_spin_ZZ_chi());
       concurrency_.delayedSum(accumulator_.get_charge_chi());
@@ -538,6 +539,7 @@ void CtauxClusterSolver<device_t, Parameters, Data>::collect_measurements() {
     accumulator_.get_magnetic_cluster_moment() /= accumulated_sign_;
     accumulator_.get_densitymatrix_A77() /= accumulated_sign_;
     accumulator_.get_densitymatrix_A89() /= accumulated_sign_;
+    accumulator_.get_densitymatrix_A1010() /= accumulated_sign_;
     accumulator_.get_spin_XX_chi() /= accumulated_sign_;
     accumulator_.get_spin_ZZ_chi() /= accumulated_sign_;
     accumulator_.get_charge_chi() /= accumulated_sign_;
