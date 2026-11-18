@@ -285,8 +285,13 @@ void CtauxAccumulator<device_t, Parameters, Data>::finalize() {
   if (compute_std_deviation_) {
     const auto& M_r_w = single_particle_accumulator_obj.get_sign_times_M_r_w();
     const auto& M_r_w_squared = single_particle_accumulator_obj.get_sign_times_M_r_w_sqr();
-    for (int l = 0; l < M_r_w_stddev.size(); l++)
-      M_r_w_stddev(l) = std::sqrt(abs(M_r_w_squared(l)) - std::pow(abs(M_r_w(l)), 2));
+    // <M^2> - <M>^2 is non-negative in exact arithmetic, but the two accumulations are rounded
+    // independently and the difference can come out slightly negative, where the square root
+    // would return NaN and poison the reported error bars.
+    for (int l = 0; l < M_r_w_stddev.size(); l++) {
+      const double variance = abs(M_r_w_squared(l)) - std::pow(abs(M_r_w(l)), 2);
+      M_r_w_stddev(l) = std::sqrt(variance > 0. ? variance : 0.);
+    }
 
     double factor = 1. / std::sqrt(parameters_.get_measurements() - 1);
 

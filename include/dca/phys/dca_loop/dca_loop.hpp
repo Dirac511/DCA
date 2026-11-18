@@ -35,6 +35,7 @@
 #include "dca/phys/domains/cluster/cluster_domain.hpp"
 #include "dca/phys/domains/quantum/electron_band_domain.hpp"
 #include "dca/phys/domains/quantum/electron_spin_domain.hpp"
+#include "dca/phys/error_computation_type.hpp"
 #include "dca/util/print_time.hpp"
 
 namespace dca {
@@ -213,10 +214,24 @@ void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::execute() {
   double L2_previous = -1.;
   decltype(MOMS.Sigma) Sigma_accepted;
   double mu_accepted = parameters.get_chemical_potential();
+  // The error bars describe the sampling noise of the run that produced them, so they are rolled
+  // back together with the self-energy. Otherwise the output would pair the self-energy of
+  // iteration i - 1 with the errors of the discarded iteration i. The error slots are shared
+  // between the standard deviation and the jackknife estimate, hence one set of copies.
+  const bool keep_error_bars =
+      parameters.get_error_computation_type() != ErrorComputationType::NONE;
+  std::decay_t<decltype(MOMS.get_Sigma_stdv())> Sigma_stdv_accepted;
+  std::decay_t<decltype(MOMS.get_G_k_w_stdv())> G_k_w_stdv_accepted;
+  std::decay_t<decltype(MOMS.get_G_r_w_error())> G_r_w_stdv_accepted;
 
   for (int i = 0; i < parameters.get_dca_iterations(); i++) {
     Sigma_accepted = MOMS.Sigma;
     mu_accepted = parameters.get_chemical_potential();
+    if (keep_error_bars) {
+      Sigma_stdv_accepted = MOMS.get_Sigma_stdv();
+      G_k_w_stdv_accepted = MOMS.get_G_k_w_stdv();
+      G_r_w_stdv_accepted = MOMS.get_G_r_w_error();
+    }
 
     adjust_chemical_potential();
 
@@ -236,6 +251,11 @@ void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::execute() {
       // Roll back to the kept iteration and rebuild what was derived from the discarded one.
       MOMS.Sigma = Sigma_accepted;
       parameters.get_chemical_potential() = mu_accepted;
+      if (keep_error_bars) {
+        MOMS.get_Sigma_stdv() = Sigma_stdv_accepted;
+        MOMS.get_G_k_w_stdv() = G_k_w_stdv_accepted;
+        MOMS.get_G_r_w_error() = G_r_w_stdv_accepted;
+      }
       perform_lattice_mapping();
       dca_loop_detail::discard_last_iteration(monte_carlo_integrator_);
       update_DCA_loop_data_functions(i - 1);

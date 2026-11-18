@@ -28,6 +28,7 @@
 #include "dca/parallel/util/get_workload.hpp"
 #include "dca/phys/dca_step/cluster_solver/stdthread_qmci/stdthread_qmci_accumulator.hpp"
 #include "dca/phys/dca_step/cluster_solver/thread_task_handler.hpp"
+#include "dca/phys/error_computation_type.hpp"
 #include "dca/profiling/events/time.hpp"
 #include "dca/util/print_time.hpp"
 
@@ -205,7 +206,12 @@ template <class QmciSolver>
 template <typename dca_info_struct_t>
 double StdThreadQmciClusterSolver<QmciSolver>::finalize(dca_info_struct_t& dca_info_struct) {
   Profiler profiler(__FUNCTION__, "stdthread-MC-Integration", __LINE__);
-  if (dca_iteration_ == parameters_.get_dca_iterations() - 1)
+  // Tied to the requested error computation instead of the last iteration index: DcaLoop can end
+  // the run on the iteration that is not the last one (rebound), and error bars computed only on
+  // the last index would then never be computed at all, leaving zeros in the output. The values
+  // are recomputed from the current measurement, so an early end still leaves the errors of the
+  // run that produced the self-energy in the last place.
+  if (parameters_.get_error_computation_type() != ErrorComputationType::NONE)
     BaseClass::computeErrorBars();
 
   double L2_Sigma_difference = QmciSolver::finalize(dca_info_struct);

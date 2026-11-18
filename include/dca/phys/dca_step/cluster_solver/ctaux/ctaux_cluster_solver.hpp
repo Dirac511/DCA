@@ -217,9 +217,19 @@ void CtauxClusterSolver<device_t, Parameters, Data>::initialize(int dca_iteratio
   accumulator_.initialize(dca_iteration_);
 
   averaged_ = false;
+  // Not tied to the last iteration index: DcaLoop can end the run before it (rebound, accuracy),
+  // and the jackknife estimate would then never be computed. The leave-one-out reductions replace
+  // the plain sums one for one, so this costs the same, and jackknifeError() overwrites the
+  // estimate with the average of the leave-one-out values, so the self-energy handed to the mixing
+  // step is the usual estimator (equal to the plain one up to the nonlinearity of the Dyson
+  // equation, i.e. O(1 / n_ranks^2)).
   compute_jack_knife_ =
-      (dca_iteration == parameters_.get_dca_iterations() - 1) &&
       (parameters_.get_error_computation_type() == ErrorComputationType::JACK_KNIFE);
+  // The estimate is built from leave-one-out sums over the ranks, so a single rank has no sample to
+  // leave out: the sums would be zero and the self-energy 0 / 0. Fail instead of continuing without
+  // the error bars that were asked for.
+  if (compute_jack_knife_ && concurrency_.number_of_processors() < 2)
+    throw(std::logic_error("JACK_KNIFE error computation requires more than one MPI rank."));
 
   if (concurrency_.id() == concurrency_.first())
     std::cout << "\n\n\t CT-AUX Integrator has initialized (DCA-iteration : " << dca_iteration
@@ -296,7 +306,10 @@ double CtauxClusterSolver<device_t, Parameters, Data>::finalize(dca_info_struct_
 
   const double L2_Sigma_difference = compute_S_k_w_from_G_k_w();
 
-  if (compute_jack_knife_ && parameters_.isAccumulatingG4()) {
+  // G4 is only accumulated on the last DCA iteration (see collect_measurements), so the jackknife
+  // error of G4 has to stay tied to it: on the earlier iterations data_.get_G4() holds no samples.
+  if (compute_jack_knife_ && parameters_.isAccumulatingG4() &&
+      dca_iteration_ == parameters_.get_dca_iterations() - 1) {
     for (std::size_t channel = 0; channel < data_.get_G4_error().size(); ++channel)
       data_.get_G4_error()[channel] = concurrency_.jackknifeError(data_.get_G4()[channel], true);
   }
