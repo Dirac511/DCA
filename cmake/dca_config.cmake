@@ -69,8 +69,8 @@ endif()
 
 # Lattice type
 set(DCA_LATTICE "square" CACHE STRING
-    "Lattice type, options are: bilayer | La3Ni2O7 | bilayer_eg | trilayer | La4Ni3O10 | tetralayer | dsmodel | square | threeband | bilayer_threeband | dpsNimodel | ddp_model | dds_model | triangular | twoband_chain | singleband_chain.")
-set_property(CACHE DCA_LATTICE PROPERTY STRINGS bilayer La3Ni2O7 bilayer_eg trilayer tetralayer dsmodel square threeband bilayer_threeband dpsNimodel ddp_model triangular twoband_chain singleband_chain)
+    "Lattice type, options are: bilayer | La3Ni2O7 | bilayer_eg | trilayer | fivelayer | La4Ni3O10 | tetralayer | dsmodel | square | threeband | bilayer_threeband | dpsNimodel | ddp_model | dds_model | triangular | twoband_chain | singleband_chain.")
+set_property(CACHE DCA_LATTICE PROPERTY STRINGS bilayer La3Ni2O7 bilayer_eg trilayer fivelayer tetralayer dsmodel square threeband bilayer_threeband dpsNimodel ddp_model triangular twoband_chain singleband_chain)
 
 if (DCA_LATTICE STREQUAL "bilayer")
   set(DCA_LATTICE_TYPE dca::phys::models::bilayer_lattice<PointGroup>)
@@ -91,6 +91,11 @@ elseif (DCA_LATTICE STREQUAL "trilayer")
   set(DCA_LATTICE_TYPE dca::phys::models::trilayer_lattice<PointGroup>)
   set(DCA_LATTICE_INCLUDE
     "dca/phys/models/analytic_hamiltonians/trilayer_lattice.hpp")
+
+elseif (DCA_LATTICE STREQUAL "fivelayer")
+  set(DCA_LATTICE_TYPE dca::phys::models::fivelayer_lattice<PointGroup>)
+  set(DCA_LATTICE_INCLUDE
+    "dca/phys/models/analytic_hamiltonians/fivelayer_lattice.hpp")
 
 elseif (DCA_LATTICE STREQUAL "La4Ni3O10")
   set(DCA_LATTICE_TYPE dca::phys::models::La4Ni3O10<PointGroup>)
@@ -153,7 +158,7 @@ elseif (DCA_LATTICE STREQUAL "singleband_chain")
       "dca/phys/models/analytic_hamiltonians/singleband_chain.hpp")
 else()
   message(FATAL_ERROR
-          "Please set DCA_LATTICE to a valid option: bilayer | La3Ni2O7 | bilayer_eg | trilayer | La4Ni3O10 | tetralayer | dsmodel | square | threeband | bilayer_threeband | dpsNimodel | ddp_model | dds_model | triangular | twoband_chain | singleband_chain.")
+          "Please set DCA_LATTICE to a valid option: bilayer | La3Ni2O7 | bilayer_eg | trilayer | fivelayer | La4Ni3O10 | tetralayer | dsmodel | square | threeband | bilayer_threeband | dpsNimodel | ddp_model | dds_model | triangular | twoband_chain | singleband_chain.")
 endif()
 
 # Model type

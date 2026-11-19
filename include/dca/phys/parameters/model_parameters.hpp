@@ -24,6 +24,7 @@
 #include "dca/phys/models/analytic_hamiltonians/La4Ni3O10.hpp"
 #include "dca/phys/models/analytic_hamiltonians/bilayer_eg.hpp"
 #include "dca/phys/models/analytic_hamiltonians/trilayer_lattice.hpp"
+#include "dca/phys/models/analytic_hamiltonians/fivelayer_lattice.hpp"
 #include "dca/phys/models/analytic_hamiltonians/tetralayer_lattice.hpp"
 #include "dca/phys/models/analytic_hamiltonians/dsmodel_lattice.hpp"
 #include "dca/phys/models/analytic_hamiltonians/twoband_chain.hpp"
@@ -62,6 +63,8 @@ class ModelParameters {};
     
 // Specialization for square lattice trilayer Hubbard model
 #include "model_parameters_trilayer_hubbard.inc"
+ 
+#include "model_parameters_fivelayer_hubbard.inc"
 
 #include "model_parameters_La4Ni3O10.inc"
 
