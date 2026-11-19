@@ -12,6 +12,8 @@
 
 #include "dca/parallel/stdthread/thread_pool/thread_pool.hpp"
 
+#include <unistd.h>
+
 #include "mpi.h"
 
 #include "dca/parallel/stdthread/thread_pool/affinity.hpp"
@@ -62,13 +64,25 @@ void ThreadPool::enlarge(size_t n_threads) {
 }
 
 void ThreadPool::workerLoop(int id) {
-  // Set affinity.
-  const int shift = core_count_ * id;
-  std::vector<int> affinities;
-  for (int x : master_affinity_)
-    affinities.push_back(x + shift);
+  // Give each worker thread its own set of cores by shifting the cores of the calling process by
+  // 'core_count_ * id'.
+  //
+  // This is only correct if the process owns all the cores of the node. With MPI pinning, that is
+  // with one core per rank, the shift moves the worker onto a core that belongs to another rank;
+  // both ranks then timeshare a single core and the slowest one sets the wall time of every
+  // collective that follows the integration. In that case the worker has to stay on the cores of
+  // its own rank.
+  if (core_count_ > 1) {
+    const int n_cores = static_cast<int>(sysconf(_SC_NPROCESSORS_CONF));
+    const int shift = core_count_ * id;
+    std::vector<int> affinities;
+    for (int x : master_affinity_)
+      if (x + shift < n_cores)
+        affinities.push_back(x + shift);
 
-  set_affinity(affinities);
+    if (!affinities.empty())
+      set_affinity(affinities);
+  }
 
   while (true) {
     std::packaged_task<void()> task;
