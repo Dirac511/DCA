@@ -73,6 +73,7 @@ private:
 
   int core_count_;
   std::vector<int> master_affinity_;
+  std::size_t n_threads_ = 0;  // Threads the cores of this process are split among.
 };
 
 template <class F, class... Args>

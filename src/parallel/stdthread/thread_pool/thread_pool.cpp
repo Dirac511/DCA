@@ -12,8 +12,6 @@
 
 #include "dca/parallel/stdthread/thread_pool/thread_pool.hpp"
 
-#include <unistd.h>
-
 #include "mpi.h"
 
 #include "dca/parallel/stdthread/thread_pool/affinity.hpp"
@@ -40,6 +38,9 @@ void ThreadPool::enlarge(size_t n_threads) {
   if (workers_.size() >= n_threads)
     return;
 
+  if (n_threads > n_threads_)
+    n_threads_ = n_threads;
+
   // Lock all queues to avoid modifications while enlarging the pool.
   std::vector<std::unique_lock<std::mutex>> locks;
   for (auto& mutex_ptr : queue_mutex_)
@@ -64,21 +65,20 @@ void ThreadPool::enlarge(size_t n_threads) {
 }
 
 void ThreadPool::workerLoop(int id) {
-  // Give each worker thread its own set of cores by shifting the cores of the calling process by
-  // 'core_count_ * id'.
+  // Give thread 'id' its own block of the cores of this process:
+  // [id * core_count_ / n_threads_, (id + 1) * core_count_ / n_threads_).
   //
-  // This is only correct if the process owns all the cores of the node. With MPI pinning, that is
-  // with one core per rank, the shift moves the worker onto a core that belongs to another rank;
-  // both ranks then timeshare a single core and the slowest one sets the wall time of every
-  // collective that follows the integration. In that case the worker has to stay on the cores of
-  // its own rank.
-  if (core_count_ > 1) {
-    const int n_cores = static_cast<int>(sysconf(_SC_NPROCESSORS_CONF));
-    const int shift = core_count_ * id;
+  // Only the cores of this process are used: shifting them by 'core_count_ * id' places the thread
+  // on the cores of another rank as soon as a rank owns a few cores only. With a single core there
+  // is nothing to split, so the affinity is left as it is.
+  if (core_count_ > 1 && n_threads_ > 1) {
+    const int n_threads = static_cast<int>(n_threads_);
+    const int first = id * core_count_ / n_threads;
+    const int last = (id + 1) * core_count_ / n_threads;
+
     std::vector<int> affinities;
-    for (int x : master_affinity_)
-      if (x + shift < n_cores)
-        affinities.push_back(x + shift);
+    for (int i = first; i < last && i < static_cast<int>(master_affinity_.size()); ++i)
+      affinities.push_back(master_affinity_[i]);
 
     if (!affinities.empty())
       set_affinity(affinities);
