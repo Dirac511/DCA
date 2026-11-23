@@ -1,0 +1,52 @@
+{
+  "physics": {
+    "beta": 5.0,
+    "density": 2.0,
+    "chemical-potential": 2.0,
+    "adjust-chemical-potential": false
+  },
+
+  "Kanamori-model": {
+    "t": 1.0,
+    "U": 4.0,
+    "U-prime": 2.0,
+    "J": 0.5,
+    "J-non-density": 0.0
+  },
+
+  "domains": {
+    "real-space-grids": {
+      "cluster": [[1, 0], [0, 1]]
+    },
+    "imaginary-time": {
+      "sp-time-intervals": 512
+    },
+    "imaginary-frequency": {
+      "sp-fermionic-frequencies": 512
+    }
+  },
+
+  "CT-INT": {
+    "initial-configuration-size": 5,
+    "alpha-dd-pos": 0.501,
+    "max-submatrix-size": 32
+  },
+
+  "CT-AUX": {
+    "expansion-parameter-K": 5.0,
+    "initial-configuration-size": 16,
+    "submatrix-size": 1
+  },
+
+  "DCA": {
+    "iterations": 1,
+    "self-energy-mixing-factor": 1.0
+  },
+
+  "Monte-Carlo-integration": {
+    "warm-up-sweeps": 100,
+    "sweeps-per-measurement": 10,
+    "measurements": 2000,
+    "seed": 0
+  }
+}

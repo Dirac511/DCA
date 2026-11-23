@@ -24,6 +24,7 @@
 #include "dca/math/nfft/dnfft_1d.hpp"
 #include "dca/linalg/device_type.hpp"
 #include "dca/linalg/matrix.hpp"
+#include "dca/linalg/util/cuda_stream.hpp"
 #include "dca/phys/error_computation_type.hpp"
 #include "dca/phys/domains/quantum/electron_band_domain.hpp"
 #include "dca/phys/domains/quantum/electron_spin_domain.hpp"
@@ -56,7 +57,7 @@ protected:
 public:
   using ScalarType = double;
 
-  SpAccumulator(/*const*/ Parameters& parameters_ref, bool accumulate_m_squared = false);
+  SpAccumulator(const Parameters& parameters_ref, bool accumulate_m_squared = false);
 
   void resetAccumulation();
 
@@ -82,14 +83,18 @@ public:
     return 0;
   }
 
+  std::vector<linalg::util::CudaStream*> get_streams() const {
+    return std::vector<linalg::util::CudaStream*>();
+  }
+
 protected:
   constexpr static int oversampling = 8;
-  /*const*/ Parameters& parameters_;
+  const Parameters& parameters_;
 
   bool initialized_ = false;
   bool finalized_ = false;
 
-  const bool accumulate_m_sqr_ = true;
+  const bool accumulate_m_sqr_;
 
   using MFunction =
       func::function<std::complex<double>, func::dmn_variadic<NuDmn, NuDmn, RDmn, WDmn>>;
@@ -102,7 +107,7 @@ private:
 };
 
 template <class Parameters>
-SpAccumulator<Parameters, linalg::CPU>::SpAccumulator(/*const*/ Parameters& parameters_ref,
+SpAccumulator<Parameters, linalg::CPU>::SpAccumulator(const Parameters& parameters_ref,
                                                       const bool accumulate_m_sqr)
     : parameters_(parameters_ref), accumulate_m_sqr_(accumulate_m_sqr) {}
 

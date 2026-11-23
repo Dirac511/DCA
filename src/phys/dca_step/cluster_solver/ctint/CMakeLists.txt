@@ -6,12 +6,17 @@ endif ()
 
 add_library(ctint
     domains/ct_int_domains.cpp
+    structs/ctint_matrix_configuration.cpp
     structs/interaction_vertices.cpp
     structs/read_write_configuration.cpp
+    structs/solver_configuration.cpp
+    structs/utils.cpp
     walker/tools/g0_interpolation.cpp
     walker/tools/d_matrix_builder.cpp
     ${CTINT_CUDA_CPP_FILES}
     )
+
+target_link_libraries(ctint PUBLIC time_and_frequency_domains)
 
 if (DCA_HAVE_CUDA)
   target_compile_definitions(ctint PUBLIC "-DDCA_HAVE_CUDA")

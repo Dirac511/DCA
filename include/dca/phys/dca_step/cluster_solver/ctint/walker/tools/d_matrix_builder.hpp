@@ -54,7 +54,7 @@ public:
 
   virtual ~DMatrixBuilder() {}
 
-  void setAlphas(const std::array<double, 3>& alphas_base, bool adjust_dd);
+  void setAlphas(const std::array<double, 4>& alphas_base, bool adjust_dd);
 
   void buildSQR(MatrixPair& S, MatrixPair& Q, MatrixPair& R, const SolverConfiguration& config) const;
 
@@ -66,7 +66,6 @@ public:
   double computeAlpha(const int aux_spin_type, const int b) const;
   double computeF(const double alpha) const;
   double computeF(const int aux_spin_type, int b) const;
-  double computeGamma(int aux_spin_type, int new_aux_spin_type, int b) const;
   void computeG0(linalg::Matrix<double, linalg::CPU>& G0, const Sector& configuration,
                  const int n_init, const int n_max, const int which_section) const;
 
@@ -85,7 +84,11 @@ protected:
   const G0Interpolation<linalg::CPU>& g0_ref_;
   std::vector<double> alpha_dd_;
   double alpha_dd_neg_ = 0;
-  double alpha_ndd_ = 0;
+  // 2x2 alpha block of the four-leg (band-off-diagonal) vertices: the diagonal entries
+  // (alpha_00 / alpha_11) are subtracted from the diagonal of D and the off-diagonal ones
+  // (alpha_10 / alpha_01) from the entries connecting the two legs of the same vertex.
+  double alpha_ndd_diag_ = 0.5;
+  double alpha_ndd_off_ = 0.1;
   const int n_bands_ = -1;
   std::array<int, 2> sbdm_step_;
   // Note: site_diff is a matrix where site_diff(i,j) = r_j - r_i.

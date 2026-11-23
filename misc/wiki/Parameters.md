@@ -500,6 +500,54 @@ Do additional time measurements.
         }
     }
 
+### CT-INT
+
+**Group** `"CT-INT":`  
+Used if *CT-INT* (interaction expansion) is selected as the cluster solver.
+
+`"initial-configuration-size":` integer (0)  
+Number of random interaction vertices the walker is initialized with.
+
+`"alpha-dd-pos":` double (0.501)  
+`"alpha-dd-neg":` double (0.)  
+`"alpha-ndd-diag":` double (0.5)  
+`"alpha-ndd-off":` double (0.1)  
+Parameters of the alpha-trick.  `"alpha-dd-pos"` / `"alpha-dd-neg"` control the decomposition of the
+density-density vertices with positive / negative coupling and change the variance, not the result.
+
+Each four-leg (band-off-diagonal) vertex carries a 2x2 alpha block:
+`"alpha-ndd-diag"` is subtracted from the diagonal of `D` (alpha_00 / alpha_11) and
+`"alpha-ndd-off"` from the entries coupling the two legs of the same vertex (alpha_10 / alpha_01).
+Physically `alpha-ndd-diag` is of the order of the density matrix (~0.5) and `alpha-ndd-off` of the
+Hartree-Fock inter-band Green's function (~0.1); `alpha-ndd-off` is the parameter that controls how
+strongly the four-leg vertices enter the configuration.
+
+`"double-update-probability":` double (0.)  
+Probability to propose the second vertex of a pair (Bennett style update).
+
+`"max-submatrix-size":` integer (32)  
+Batch size of the delayed updates. Only used by the submatrix walker
+(`-DDCA_USE_CTINT_SUBMATRIX=ON`).  Measured on La3Ni2O7 (4 orbitals, 8 ranks): at beta=8
+(average order ~300) the submatrix walker is 2.3x faster than the simple walker with 64, while at
+beta <= 4 (order <= 160) it is about 5% slower.  Use it for low-temperature runs.
+
+**Error bars.** `"error-computation-type": "JACK_KNIFE"` requires more than one MPI rank; a single
+rank aborts instead of reporting a zero error. `"STANDARD_DEVIATION"` is not supported.
+
+#### Example
+
+```json
+"CT-INT": {
+    "initial-configuration-size": 8,
+    "alpha-dd-pos": 0.501,
+    "alpha-dd-neg": 0.0,
+    "alpha-ndd-diag": 0.3,
+    "alpha-ndd-off": 0.1,
+    "double-update-probability": 1.0,
+    "max-submatrix-size": 32
+}
+```
+
 ### CT-HYB
 
 **Group** `"SS-CT-HYB":`  

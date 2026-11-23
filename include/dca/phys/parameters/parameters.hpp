@@ -123,6 +123,10 @@ public:
     return concurrency_;
   }
 
+  const concurrency_type& get_concurrency() const {
+    return concurrency_;
+  }
+
 private:
   template <typename ReaderOrWriter>
   void readWrite(ReaderOrWriter& reader_or_writer);

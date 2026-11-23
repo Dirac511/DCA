@@ -12,6 +12,8 @@
 
 #include "dca/phys/dca_step/cluster_solver/ctint/walker/tools/d_matrix_builder.hpp"
 
+#include <cmath>
+
 namespace dca {
 namespace phys {
 namespace solver {
@@ -25,9 +27,10 @@ DMatrixBuilder<CPU>::DMatrixBuilder(const G0Interpolation<CPU>& g0,
                                     const linalg::Matrix<int, linalg::CPU>& site_diff, const int nb)
     : g0_ref_(g0), n_bands_(nb), sbdm_step_{nb, nb * nb}, site_diff_(site_diff) {}
 
-void DMatrixBuilder<CPU>::setAlphas(const std::array<double, 3>& alphas_base, bool adjust_dd) {
+void DMatrixBuilder<CPU>::setAlphas(const std::array<double, 4>& alphas_base, bool adjust_dd) {
   alpha_dd_neg_ = alphas_base[1];
-  alpha_ndd_ = alphas_base[2];
+  alpha_ndd_diag_ = alphas_base[2];
+  alpha_ndd_off_ = alphas_base[3];
 
   const int r0 = site_diff_(0, 0);
   alpha_dd_.resize(n_bands_);
@@ -73,10 +76,21 @@ double DMatrixBuilder<CPU>::computeD(const int i, const int j, const Sector& con
   const int p_index = label(b1, b2, delta_r);
   const double delta_tau = configuration.getTau(i) - configuration.getTau(j);
   const double g0_val = g0_ref_(delta_tau, p_index);
-  if (i == j)
-    return g0_val - computeAlpha(configuration.getAuxFieldType(i), b1);
-  else
-    return g0_val;
+  if (i == j) {
+    const short type = configuration.getAuxFieldType(i);
+    // Four-leg vertices occupy two band-diagonal legs in the sector; each leg carries the diagonal
+    // part of the vertex's 2x2 alpha block (alpha_00 / alpha_11).
+    if (std::abs(type) == 3)
+      return g0_val - alpha_ndd_diag_;
+    return g0_val - computeAlpha(type, b1);
+  }
+
+  // The two legs of the same four-leg vertex are connected by the off-diagonal alpha (alpha_10 /
+  // alpha_01), which turns the band-off-diagonal coupling into a 2x2 block of D.
+  if (configuration.getVertexId(i) == configuration.getVertexId(j))
+    return g0_val - alpha_ndd_off_;
+
+  return g0_val;
 }
 
 int DMatrixBuilder<CPU>::label(const int b1, const int b2, const int r) const {
@@ -91,13 +105,17 @@ double DMatrixBuilder<CPU>::computeAlpha(const int aux_spin_type, const int b) c
     case 2:
       return aux_spin_type < 0 ? (0.5 + alpha_dd_neg_) : (0.5 - alpha_dd_neg_);
     case 3:
-      return aux_spin_type < 0 ? alpha_ndd_ : -alpha_ndd_;
+      // Four-leg vertices are handled by the 2x2 alpha block (alpha-ndd-diag / alpha-ndd-off) read
+      // in computeD, so this branch is not reached.
+      return 0.;
     default:
       throw(std::logic_error("type not recognized."));
   }
 }
 
 double DMatrixBuilder<CPU>::computeF(const double alpha) const {
+  if (std::abs(alpha - 1.) < 1e-12)  // Singular.  A silent infinity corrupts the walker state.
+    throw(std::logic_error("The alpha-trick factor 1 / (1 - alpha) is singular for alpha = 1."));
   return alpha / (alpha - 1);
 }
 
@@ -106,11 +124,6 @@ double DMatrixBuilder<CPU>::computeF(const int aux_spin_type, int b) const {
     return 1;
   else
     return computeF(computeAlpha(aux_spin_type, b));
-}
-
-double DMatrixBuilder<CPU>::computeGamma(const int aux_spin_type, const int new_aux_spin_type,
-                                         int b) const {
-  return (computeF(new_aux_spin_type, b) - computeF(aux_spin_type, b)) / computeF(aux_spin_type, b);
 }
 
 // Compute only the parts of G0 required at a given moment. (Re)Computing every element is not needed in most situations.

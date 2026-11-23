@@ -65,9 +65,6 @@ protected:
   using QmciAccumulator::get_accumulated_sign;
 
 private:
-  using QmciAccumulator::data_;
-  using QmciAccumulator::parameters_;
-
   int thread_id_;
   bool measuring_;
   std::atomic<bool> done_;

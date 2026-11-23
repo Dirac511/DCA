@@ -14,6 +14,7 @@
 #include <cassert>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 #include "dca/linalg/util/cuda_stream.hpp"
 #include "dca/phys/dca_data/dca_data.hpp"
@@ -91,6 +92,15 @@ public:
     return flop_;
   }
 
+  // Interface required by the threaded accumulator jacket.
+  const auto& get_configuration() const {
+    return configuration_;
+  }
+
+  float get_Gflop() const {
+    return flop_;
+  }
+
 private:
   const Parameters& parameters_;
 
@@ -124,8 +134,8 @@ CtintAccumulator<Parameters, device>::CtintAccumulator(const Parameters& pars, c
       thread_id_(id),
       sp_accumulator_(pars),
       tp_accumulator_(data.G0_k_w_cluster_excluded, pars, thread_id_) {
-  streams_.insert(streams_.end(), sp_accumulator_.get_streams().begin(),
-                  sp_accumulator_.get_streams().end());
+  const auto sp_streams = sp_accumulator_.get_streams();
+  streams_.insert(streams_.end(), sp_streams.begin(), sp_streams.end());
   streams_.push_back(tp_accumulator_.get_stream());
 }
 
@@ -146,9 +156,9 @@ void CtintAccumulator<Parameters, device>::initialize(const int dca_iteration) {
 template <class Parameters, linalg::DeviceType device>
 template <class Walker>
 void CtintAccumulator<Parameters, device>::updateFrom(Walker& walker) {
-  walker.computeM(M_, streams_);
+  walker.computeM(M_);
   configuration_ = walker.getConfiguration();
-  sign_ = walker.getSign();
+  sign_ = walker.get_sign();
   flop_ += walker.stealFLOPs();
 
   ready_ = true;

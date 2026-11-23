@@ -210,7 +210,9 @@ template <typename ParametersType, typename DcaDataType, typename MCIntegratorTy
 void DcaLoop<ParametersType, DcaDataType, MCIntegratorType>::execute() {
   // A linearly convergent iteration decreases |Sigma_QMC - Sigma_cg| monotonically. A rise above
   // the sampling scatter ends the run: the rebounding step is discarded, the previous one is kept.
-  constexpr double rebound_margin = 1.1;
+  // The margin has to be wide enough to ignore the Monte Carlo scatter of a single iteration;
+  // 1.1 stopped strongly correlated multi-orbital runs while L2 was still falling.
+  constexpr double rebound_margin = 1.5;
   double L2_previous = -1.;
   decltype(MOMS.Sigma) Sigma_accepted;
   double mu_accepted = parameters.get_chemical_potential();

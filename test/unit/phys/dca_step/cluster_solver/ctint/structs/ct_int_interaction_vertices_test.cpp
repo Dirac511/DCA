@@ -20,13 +20,14 @@ TEST(InteractionVerticesTest, InsertElement) {
   dca::phys::solver::ctint::InteractionVertices H;
   using Element = dca::phys::solver::ctint::InteractionElement;
 
+  H.initialize(1., false);
   H.insertElement(Element{{0, 0, 0, 0}, {0, 1, 2, 3}, 1.});  // pair-hop 1
   H.insertElement(Element{{0, 0, 0, 0}, {0, 0, 2, 2}, 1.});  // density-density
   H.insertElement(Element{{0, 0, 0, 0}, {1, 0, 3, 2}, 1.});  // pair-hop 2
 
-  EXPECT_EQ(std::vector<ushort>{2}, H[0].partners_id);
-  EXPECT_EQ(std::vector<ushort>{}, H[1].partners_id);
-  EXPECT_EQ(std::vector<ushort>{0}, H[2].partners_id);
+  EXPECT_EQ(std::vector<unsigned short>{2}, H[0].partners_id);
+  EXPECT_EQ(std::vector<unsigned short>{}, H[1].partners_id);
+  EXPECT_EQ(std::vector<unsigned short>{0}, H[2].partners_id);
 }
 
 TEST(InteractionVerticesTest, SamplingProb) {
@@ -47,7 +48,7 @@ TEST(InteractionVerticesTest, SamplingProb) {
   //  EXPECT_EQ(0, H.getInsertionIndices(0.8).first);
 }
 
-using G0Setup = dca::testing::G0Setup<dca::testing::LatticeHund>;
+using G0Setup = dca::testing::G0Setup<dca::testing::LatticeSquare>;
 TEST_F(G0Setup, InitializeFromHamiltonians) {
   //  ****************************
   //  **  Density-density test  **
@@ -56,8 +57,8 @@ TEST_F(G0Setup, InitializeFromHamiltonians) {
     auto& H_int = G0Setup::data_->H_interactions;
     const double U = 1;
     H_int = 0.;
-    H_int(0, 0, 0, 1, 0) = U;
-    H_int(0, 1, 0, 0, 0) = U;
+    H_int(0, 1, 0) = U;
+    H_int(1, 0, 0) = U;
 
     dca::phys::solver::ctint::InteractionVertices vertices;
     vertices.initializeFromHamiltonian(H_int);
@@ -75,20 +76,18 @@ TEST_F(G0Setup, InitializeFromHamiltonians) {
   {
     using Nu = dca::func::dmn_variadic<BDmn, SDmn>;
     using Rdmn = G0Setup::RDmn;
-    using Lattice = G0Setup::LatticeType;
 
     dca::func::function<double, dca::func::dmn_variadic<Nu, Nu, Nu, Nu, Rdmn>> H_nd;
-    Lattice::initializeNonDensityInteraction(H_nd, G0Setup::parameters_);
+    H_nd(0, 0, 0, 0, 0) = 1.;
 
     dca::phys::solver::ctint::InteractionVertices vertices;
     vertices.initializeFromNonDensityHamiltonian(H_nd);
 
-    const double Jh = G0Setup::parameters_.get_Jh();
-    EXPECT_EQ(Jh, vertices[0].w);
-    EXPECT_NEAR(Jh * 16, vertices.integratedInteraction(), 1e-10);
+    EXPECT_EQ(1., vertices[0].w);
+    EXPECT_NEAR(Rdmn::dmn_size(), vertices.integratedInteraction(), 1e-10);
 
     const auto& vertex = vertices[0];
-    std::array<int, 4> expected{0, 1, 2, 3};  // 0up, 1up, 0down, 1up.
+    std::array<int, 4> expected{0, 0, 0, 0};
     for (int i = 0; i < expected.size(); i++)
       EXPECT_EQ(expected[i], vertex.nu[i]);
   }

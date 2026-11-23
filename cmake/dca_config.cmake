@@ -69,8 +69,8 @@ endif()
 
 # Lattice type
 set(DCA_LATTICE "square" CACHE STRING
-    "Lattice type, options are: bilayer | La3Ni2O7 | bilayer_eg | trilayer | fivelayer | La4Ni3O10 | tetralayer | dsmodel | square | threeband | bilayer_threeband | dpsNimodel | ddp_model | dds_model | triangular | twoband_chain | singleband_chain.")
-set_property(CACHE DCA_LATTICE PROPERTY STRINGS bilayer La3Ni2O7 bilayer_eg trilayer fivelayer tetralayer dsmodel square threeband bilayer_threeband dpsNimodel ddp_model triangular twoband_chain singleband_chain)
+    "Lattice type, options are: bilayer | La3Ni2O7 | bilayer_eg | trilayer | fivelayer | La4Ni3O10 | tetralayer | dsmodel | square | kanamori | bilayer_kanamori | threeband | bilayer_threeband | dpsNimodel | ddp_model | dds_model | triangular | twoband_chain | singleband_chain.")
+set_property(CACHE DCA_LATTICE PROPERTY STRINGS bilayer La3Ni2O7 bilayer_eg trilayer fivelayer tetralayer dsmodel square kanamori bilayer_kanamori threeband bilayer_threeband dpsNimodel ddp_model triangular twoband_chain singleband_chain)
 
 if (DCA_LATTICE STREQUAL "bilayer")
   set(DCA_LATTICE_TYPE dca::phys::models::bilayer_lattice<PointGroup>)
@@ -111,6 +111,16 @@ elseif (DCA_LATTICE STREQUAL "dsmodel")
   set(DCA_LATTICE_TYPE dca::phys::models::dsmodel_lattice<PointGroup>)
   set(DCA_LATTICE_INCLUDE
     "dca/phys/models/analytic_hamiltonians/dsmodel_lattice.hpp")
+
+elseif (DCA_LATTICE STREQUAL "kanamori")
+  set(DCA_LATTICE_TYPE dca::phys::models::KanamoriLattice<PointGroup>)
+  set(DCA_LATTICE_INCLUDE
+    "dca/phys/models/analytic_hamiltonians/kanamori_lattice.hpp")
+
+elseif (DCA_LATTICE STREQUAL "bilayer_kanamori")
+  set(DCA_LATTICE_TYPE dca::phys::models::BilayerKanamori<PointGroup>)
+  set(DCA_LATTICE_INCLUDE
+    "dca/phys/models/analytic_hamiltonians/bilayer_kanamori.hpp")
 
 elseif (DCA_LATTICE STREQUAL "square")
   set(DCA_LATTICE_TYPE dca::phys::models::square_lattice<PointGroup>)
@@ -245,10 +255,31 @@ configure_file("${PROJECT_SOURCE_DIR}/include/dca/config/rng.hpp.in"
 ################################################################################
 # Select the cluster solver.
 set(DCA_CLUSTER_SOLVER "CT-AUX" CACHE STRING
-  "The cluster solver for the DCA(+) loop. Options are: CT-AUX | SS-CT-HYB.")
-set_property(CACHE DCA_CLUSTER_SOLVER PROPERTY STRINGS CT-AUX SS-CT-HYB)
+  "The cluster solver for the DCA(+) loop. Options are: CT-AUX | CT-INT | SS-CT-HYB.")
+set_property(CACHE DCA_CLUSTER_SOLVER PROPERTY STRINGS CT-AUX CT-INT SS-CT-HYB)
 
-if (DCA_CLUSTER_SOLVER STREQUAL "CT-AUX")
+if (DCA_CLUSTER_SOLVER STREQUAL "CT-INT")
+  set(DCA_CLUSTER_SOLVER_NAME dca::phys::solver::CT_INT)
+  set(DCA_CLUSTER_SOLVER_INCLUDE
+    "dca/phys/dca_step/cluster_solver/ctint/ctint_cluster_solver.hpp")
+
+  # The current CT-INT port is CPU-only and the simple walker is the default.  The submatrix walker
+  # is opt-in: it rejects four-leg (non density-density) interactions at construction time, because
+  # its M = G0 * F - 1 transform degenerates for their band-off-diagonal legs and the average sign
+  # collapses.  Enable it explicitly for pure density-density models only.
+  set(DCA_USE_CTINT_SUBMATRIX OFF CACHE BOOL
+    "Use the CT-INT CPU submatrix walker if the CT-INT solver is selected (density-density models only).")
+  if (DCA_USE_CTINT_SUBMATRIX)
+    set(DCA_CTINT_SUBMATRIX_FLAG true)
+    message(STATUS "CT-INT: submatrix walker enabled (density-density models only).")
+  else()
+    set(DCA_CTINT_SUBMATRIX_FLAG false)
+    message(STATUS "CT-INT: simple walker (default).")
+  endif()
+  set(DCA_CLUSTER_SOLVER_TYPE
+    "dca::phys::solver::CtintClusterSolver<dca::linalg::CPU, ParametersType, ${DCA_CTINT_SUBMATRIX_FLAG}>")
+
+elseif (DCA_CLUSTER_SOLVER STREQUAL "CT-AUX")
   set(DCA_CLUSTER_SOLVER_NAME dca::phys::solver::CT_AUX)
   set(DCA_CLUSTER_SOLVER_TYPE "dca::phys::solver::CtauxClusterSolver<walker_device, ParametersType, DcaDataType>")
   set(DCA_CLUSTER_SOLVER_INCLUDE
@@ -266,7 +297,7 @@ elseif (DCA_CLUSTER_SOLVER STREQUAL "SS-CT-HYB")
 #     "dca/phys/dca_step/cluster_solver/high_temperature_series_expansion/high_temperature_series_expansion_solver.hpp")
 
 else()
-  message(FATAL_ERROR "Please set DCA_CLUSTER_SOLVER to a valid option: CT-AUX | SS-CT-HYB.")
+  message(FATAL_ERROR "Please set DCA_CLUSTER_SOLVER to a valid option: CT-AUX | CT-INT | SS-CT-HYB.")
 endif()
 
 ################################################################################

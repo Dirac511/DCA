@@ -1,4 +1,4 @@
-// Copyright (C) 2018 ETH Zurich
+﻿// Copyright (C) 2018 ETH Zurich
 // Copyright (C) 2018 UT-Battelle, LLC
 // All rights reserved.
 //
@@ -11,6 +11,7 @@
 
 #ifndef DCA_PHYS_DCA_STEP_CLUSTER_SOLVER_CTINT_STRUCTS_SECTOR_ENTRY_HPP
 #define DCA_PHYS_DCA_STEP_CLUSTER_SOLVER_CTINT_STRUCTS_SECTOR_ENTRY_HPP
+
 
 namespace dca {
 namespace phys {
@@ -42,15 +43,19 @@ struct SectorEntry {
 
   bool operator==(const SectorEntry& rhs) const {
     return b_left_ == rhs.b_left_ && r_left_ == rhs.r_left_ && b_right_ == rhs.b_right_ &&
-           r_left_ == rhs.r_left_ && tau_ == rhs.tau_ && aux_field_type_ == rhs.aux_field_type_;
+           r_right_ == rhs.r_right_ && tau_ == rhs.tau_ && aux_field_type_ == rhs.aux_field_type_ &&
+           vertex_id_ == rhs.vertex_id_;
   }
 
-  ushort b_left_;
-  ushort r_left_;
-  ushort b_right_;
-  ushort r_right_;
+  unsigned short b_left_;
+  unsigned short r_left_;
+  unsigned short b_right_;
+  unsigned short r_right_;
   double tau_;
   short aux_field_type_;
+  // Index of the owning interaction vertex.  It identifies the two legs that belong to the same
+  // four-leg vertex, whose mutual D entries carry the off-diagonal alpha (alpha_10 / alpha_01).
+  unsigned vertex_id_ = 0;
 };
 
 }  // namespace details

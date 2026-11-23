@@ -342,7 +342,9 @@ void MPICollectiveSum::leaveOneOutSum(func::function<Scalar, Domain>& f, const b
   }
   else {
     delayedSum(f);
-    remove_local_value_.back() = false;
+    // Without this flag resolveSums() keeps the local value and the "leave one out" sum degenerates
+    // into a plain sum (breaks the CT-AUX jackknife estimate of M_r_w).
+    remove_local_value_.back() = true;
   }
 }
 

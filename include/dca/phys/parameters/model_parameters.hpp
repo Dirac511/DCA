@@ -30,6 +30,8 @@
 #include "dca/phys/models/analytic_hamiltonians/twoband_chain.hpp"
 #include "dca/phys/models/analytic_hamiltonians/singleband_chain.hpp"
 #include "dca/phys/models/analytic_hamiltonians/threeband_hubbard.hpp"
+#include "dca/phys/models/analytic_hamiltonians/kanamori_lattice.hpp"
+#include "dca/phys/models/analytic_hamiltonians/bilayer_kanamori.hpp"
 #include "dca/phys/models/analytic_hamiltonians/bilayer_threeband.hpp"
 #include "dca/phys/models/analytic_hamiltonians/dpsNi_model.hpp"
 #include "dca/phys/models/analytic_hamiltonians/ddp_model.hpp"
@@ -76,6 +78,12 @@ class ModelParameters {};
 
 // Specialization for material models
 #include "model_parameters_material.inc"
+
+// Specialization for two-orbital Kanamori model
+#include "model_parameters_kanamori.inc"
+
+// Specialization for the bilayer two-orbital Kanamori-Hubbard model
+#include "model_parameters_bilayer_kanamori.inc"
 
 // Specialization for single-band Hubbard model
 #include "model_parameters_single_band_hubbard.inc"

@@ -85,9 +85,9 @@ inline void copyCol(const Matrix<Scalar, device_name>& mat_x, int jx,
 // Preconditions: j_x.size() <= j_y.size(), mat_x.nrRows() == mat_y.nrRows()
 //                0 <= j_x[i] < mat_x.nrCols() for 0 <= i < j_x.size(),
 //                0 <= j_y[i] < mat_y.nrCols() for 0 <= i < j_x.size().
-template <typename Scalar>
-inline void copyCols(const Matrix<Scalar, CPU>& mat_x, const Vector<int, CPU>& j_x,
-                     Matrix<Scalar, CPU>& mat_y, const Vector<int, CPU>& j_y, int /*thread_id*/ = 0,
+template <typename Scalar, class Vec>
+inline void copyCols(const Matrix<Scalar, CPU>& mat_x, const Vec& j_x,
+                     Matrix<Scalar, CPU>& mat_y, const Vec& j_y, int /*thread_id*/ = 0,
                      int /*stream_id*/ = 0) {
   assert(j_x.size() <= j_y.size());
 
@@ -128,9 +128,9 @@ inline void copyRow(const Matrix<Scalar, device_name>& mat_x, int ix,
 // Preconditions: i_x.size() <= i_y.size(), mat_x.nrCols() == mat_y.nrCols()
 //                0 <= i_x[i] < mat_x.nrRows() for 0 <= i < i_x.size(),
 //                0 <= i_y[i] < mat_y.nrRows() for 0 <= i < i_x.size().
-template <typename Scalar>
-inline void copyRows(const Matrix<Scalar, CPU>& mat_x, const Vector<int, CPU>& i_x,
-                     Matrix<Scalar, CPU>& mat_y, const Vector<int, CPU>& i_y, int /*thread_id*/ = 0,
+template <typename Scalar, class Vec>
+inline void copyRows(const Matrix<Scalar, CPU>& mat_x, const Vec& i_x,
+                     Matrix<Scalar, CPU>& mat_y, const Vec& i_y, int /*thread_id*/ = 0,
                      int /*stream_id*/ = 0) {
   assert(i_x.size() <= i_y.size());
   assert(mat_x.nrCols() == mat_y.nrCols());
@@ -287,14 +287,18 @@ void smallInverse(Matrix<Scalar, CPU>& m_inv, Vector<int, CPU>& ipiv, Vector<Sca
       m_inv(0, 0) = Scalar(1.) / m_inv(0, 0);
       break;
     case 2: {
+      // inverse([[a, b], [c, d]]) = [[d, -b], [-c, a]] / det.  The previous implementation swapped
+      // b and c, which is only correct for symmetric matrices.
       const Scalar det = m_inv(0, 0) * m_inv(1, 1) - m_inv(0, 1) * m_inv(1, 0);
+      const Scalar a00 = m_inv(0, 0);
+      const Scalar a01 = m_inv(0, 1);
+      const Scalar a10 = m_inv(1, 0);
+      const Scalar a11 = m_inv(1, 1);
 
-      std::swap(m_inv(0, 0), m_inv(1, 1));
-      m_inv(0, 0) /= det;
-      m_inv(1, 1) /= det;
-      std::swap(m_inv(1, 0), m_inv(0, 1));
-      m_inv(1, 0) /= -det;
-      m_inv(0, 1) /= -det;
+      m_inv(0, 0) = a11 / det;
+      m_inv(0, 1) = -a01 / det;
+      m_inv(1, 0) = -a10 / det;
+      m_inv(1, 1) = a00 / det;
       break;
     }
     case 3: {
@@ -323,6 +327,33 @@ void smallInverse(Matrix<Scalar, CPU>& m_inv) {
   Vector<int, CPU> ipiv;
   Vector<Scalar, CPU> work;
   smallInverse(m_inv, ipiv, work);
+}
+
+// Computes in place the inverse of mat and the determinant of the inverse.
+// In/Out: mat
+// Returns: the determinant of mat^-1
+// Precondition: mat is a non-singular real matrix.
+template <typename Scalar, template <typename, DeviceType> class MatrixType>
+Scalar inverseAndDeterminant(MatrixType<Scalar, CPU>& mat) {
+  assert(mat.is_square());
+  std::vector<int> ipiv(mat.nrRows());
+
+  lapack::UseDevice<CPU>::getrf(mat.nrRows(), mat.nrCols(), mat.ptr(), mat.leadingDimension(),
+                                ipiv.data());
+
+  Scalar det = 1;
+  for (int i = 0; i < mat.nrCols(); ++i) {
+    det *= mat(i, i);
+    if (ipiv[i] != i + 1)
+      det *= -1;
+  }
+
+  const int lwork = util::getInverseWorkSize(mat);
+  std::vector<Scalar> work(lwork);
+  lapack::UseDevice<CPU>::getri(mat.nrRows(), mat.ptr(), mat.leadingDimension(), ipiv.data(),
+                                work.data(), lwork);
+
+  return 1. / det;
 }
 
 // Remove the j-th column. The data is moved accordingly.

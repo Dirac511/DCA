@@ -1,4 +1,4 @@
-// Copyright (C) 2018 ETH Zurich
+﻿// Copyright (C) 2018 ETH Zurich
 // Copyright (C) 2018 UT-Battelle, LLC
 // All rights reserved.
 //
@@ -12,6 +12,7 @@
 #ifndef DCA_PHYS_DCA_STEP_CLUSTER_SOLVER_CTINT_STRUCTS_UTIL_HPP
 #define DCA_PHYS_DCA_STEP_CLUSTER_SOLVER_CTINT_STRUCTS_UTIL_HPP
 
+#include <cassert>
 #include <stdexcept>
 #include <vector>
 
@@ -22,25 +23,8 @@ namespace ctint {
 namespace details {
 // dca::phys::solver::ctint::details::
 
-template<class T>
-T getRandomElement(const std::vector<const std::vector<T>*>& v_ptrs, const double rand){
-    assert(rand >= 0 && rand <= 1);
-
-    unsigned size = 0;
-    for(int i = v_ptrs.size() - 1; i >= 0; --i)
-        size += v_ptrs[i]->size();
-
-    // TODO: use binary search or other efficient scheme.
-    unsigned idx = size * rand;
-    for(auto v_ptr : v_ptrs){
-        if (idx < v_ptr->size())
-            return (*v_ptr)[idx];
-        idx -= v_ptr->size();
-    }
-
-    throw(std::logic_error("Something went wrong."));
-}
-
+unsigned getRandomElement(const std::vector<const std::vector<std::size_t>*>& v_ptrs,
+                          const double rand) noexcept;
 
 }  // namespace details
 }  // namespace ctint

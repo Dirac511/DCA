@@ -19,6 +19,8 @@
 #include <future>
 #include <queue>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "dca/io/buffer.hpp"
@@ -36,6 +38,31 @@ namespace dca {
 namespace phys {
 namespace solver {
 // dca::phys::solver::
+
+namespace stdthread_qmci_detail {
+// Calls walker.markThermalized() if the walker provides it, otherwise falls back to the
+// legacy is_thermalized() setter used by CT-AUX.
+template <typename T>
+auto has_mark_thermalized(int) -> decltype(std::declval<T&>().markThermalized(), std::true_type{});
+
+template <typename>
+std::false_type has_mark_thermalized(...);
+
+template <typename T>
+void mark_thermalized(T& walker, std::true_type) {
+  walker.markThermalized();
+}
+
+template <typename T>
+void mark_thermalized(T& walker, std::false_type) {
+  walker.is_thermalized() = true;
+}
+
+template <typename T>
+void mark_thermalized(T& walker) {
+  mark_thermalized(walker, decltype(has_mark_thermalized<T>(0)){});
+}
+}  // namespace stdthread_qmci_detail
 
 template <class QmciSolver>
 class StdThreadQmciClusterSolver : public QmciSolver {
@@ -322,7 +349,7 @@ void StdThreadQmciClusterSolver<QmciSolver>::initializeAndWarmUp(Walker& walker,
       walker.updateShell(i, parameters_.get_warm_up_sweeps());
   }
 
-  walker.is_thermalized() = true;
+  stdthread_qmci_detail::mark_thermalized(walker);
 
   if (id == 0) {
     if (concurrency_.id() == concurrency_.first())

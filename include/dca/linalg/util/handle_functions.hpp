@@ -14,13 +14,14 @@
 #ifndef DCA_LINALG_UTIL_HANDLE_FUNCTIONS_HPP
 #define DCA_LINALG_UTIL_HANDLE_FUNCTIONS_HPP
 
+#include "dca/linalg/util/stream_functions.hpp"
+
 #ifdef DCA_HAVE_CUDA
 #include <vector>
 
 #include <cublas_v2.h>
 
 #include "dca/linalg/util/cublas_handle.hpp"
-#include "dca/linalg/util/stream_functions.hpp"
 #endif  // DCA_HAVE_CUDA
 
 namespace dca {
@@ -65,8 +66,12 @@ inline cublasHandle_t getHandle(const int thread_id, const int stream_id) {
 
 #else
 
-// Implement SFINAE.
-inline void resizeHandleContainer(int /*max_threads*/) {}
+// On the CPU the stream container is a mock, but it still has to be large enough for
+// the thread ids used by the walkers and accumulators.
+inline void resizeHandleContainer(const int max_threads) {
+  if (getStreamContainer().get_max_threads() < max_threads)
+    resizeStreamContainer(max_threads);
+}
 
 #endif  // DCA_HAVE_CUDA
 
