@@ -15,7 +15,6 @@
 #include <type_traits>
 
 #include "dca/phys/models/analytic_hamiltonians/bilayer_kanamori.hpp"
-#include "dca/phys/models/analytic_hamiltonians/kanamori_lattice.hpp"
 
 namespace dca {
 namespace phys {
@@ -25,11 +24,6 @@ namespace models {
 template <class Lattice>
 struct has_non_density_interaction {
   constexpr static bool value = false;
-};
-
-template <class PointGroup>
-struct has_non_density_interaction<KanamoriLattice<PointGroup>> {
-  constexpr static bool value = true;
 };
 
 template <class PointGroup>
