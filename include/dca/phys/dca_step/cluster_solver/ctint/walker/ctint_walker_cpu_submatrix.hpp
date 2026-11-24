@@ -199,27 +199,20 @@ template <class Parameters, bool fix_rng_order>
 CtintWalkerSubmatrixCpu<Parameters, fix_rng_order>::CtintWalkerSubmatrixCpu(
     const Parameters& parameters_ref, const Data& /*data*/, Rng& rng_ref, int id)
     : BaseClass(parameters_ref, rng_ref, id) {
-  // Four-leg (non density-density) vertices are not supported by the submatrix update.  The simple
-  // walker handles them by expanding each band-off-diagonal leg into two band-diagonal legs; the
-  // M = G0 * F - 1 transform of this walker is not validated for such configurations, so fail fast
-  // instead of silently returning a wrong result.
-  for (int i = 0; i < int(vertices_.size()); ++i) {
-    const auto& nu = vertices_[i].nu;
-    if (nu[0] % n_bands_ != nu[1] % n_bands_ || nu[2] % n_bands_ != nu[3] % n_bands_)
-      throw(std::logic_error(
-          "CT-INT: the submatrix walker does not support four-leg (non density-density) "
-          "interactions. Configure the solver with DCA_USE_CTINT_SUBMATRIX=OFF, or set "
-          "\"J-exchange\" to zero."));
-  }
+  const auto alphas = parameters_ref.getAlphas();
 
   for (int b = 0; b < n_bands_; ++b) {
-    // Density-density vertices only: four-leg ones are evaluated per vertex with F(w).
     for (int i = 1; i <= 2; ++i) {
       f_[i][b] = d_builder_ptr_->computeF(i, b);
       f_[-i][b] = d_builder_ptr_->computeF(-i, b);
 
       prob_const_[i][b] = prob_const_[-i][b] = -beta_ / (f_[i][b] - 1) / (f_[-i][b] - 1);
     }
+    // Four-leg vertices: both legs of a sector carry the diagonal part of the vertex's 2x2 alpha
+    // block (alpha_00 / alpha_11 are both given by alpha-ndd-diag); the off-diagonal part only
+    // enters D (see DMatrixBuilder::computeD), not the F transform.
+    f_[3][b] = f_[-3][b] = d_builder_ptr_->computeF(alphas[2]);
+    prob_const_[3][b] = prob_const_[-3][b] = -beta_ / (f_[3][b] - 1) / (f_[3][b] - 1);
     f_[0][b] = 1;
   }
 
