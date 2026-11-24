@@ -46,6 +46,9 @@ struct CMakeOptions {
 
   static const std::string dca_with_qmc_bit;
 
+  // CT-INT submatrix walker (DCA_USE_CTINT_SUBMATRIX).
+  static const std::string dca_use_ctint_submatrix;
+
   static void print();
 };
 

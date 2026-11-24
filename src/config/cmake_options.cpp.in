@@ -31,6 +31,7 @@ const std::string CMakeOptions::dca_with_gnuplot = "@DCA_WITH_GNUPLOT@";
 const std::string CMakeOptions::dca_with_single_precision_tp_measurements =
     "@DCA_WITH_SINGLE_PRECISION_TP_MEASUREMENTS@";
 const std::string CMakeOptions::dca_with_qmc_bit = "@DCA_WITH_QMC_BIT@";
+const std::string CMakeOptions::dca_use_ctint_submatrix = "@DCA_USE_CTINT_SUBMATRIX@";
 const std::string CMakeOptions::dca_with_memory_savings = "@DCA_WITH_MEMORY_SAVINGS@";
 const std::string CMakeOptions::dca_with_managed_memory = "@DCA_WITH_MANAGED_MEMORY@";
 
@@ -63,6 +64,8 @@ void CMakeOptions::print() {
             << "DCA_WITH_MANAGED_MEMORY = " << CMakeOptions::dca_with_managed_memory << "\n"
             << "\n"
             << "DCA_WITH_QMC_BIT = " << CMakeOptions::dca_with_qmc_bit << "\n"
+            << "\n"
+            << "DCA_USE_CTINT_SUBMATRIX = " << CMakeOptions::dca_use_ctint_submatrix << "\n"
             << std::endl;
 }
 }  // namespace config
