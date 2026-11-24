@@ -35,7 +35,7 @@ struct InteractionElement {
   double w;
   // Per-vertex alpha table, following ALPS/CT-INT: alpha[af_state][rank] with rank = 0,1 the two
   // c^dag c of the vertex and af_state = 0,1 the auxiliary-field state.  It replaces the global
-  // alpha-ndd-diag / alpha-ndd-off pair for four-leg (non density-density) effects.
+  // alpha-ndd-delta (alpha = 0.5 +- delta) for four-leg (non density-density) effects.
   std::array<std::array<double, 2>, 2> alpha = {{{0., 0.}, {0., 0.}}};
   // TODO: write proper constructor.
   std::vector<unsigned short> partners_id = std::vector<unsigned short>();

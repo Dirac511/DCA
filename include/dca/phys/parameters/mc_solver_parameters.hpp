@@ -263,8 +263,8 @@ public:
     return initial_configuration_size_;
   }
 
-  std::array<double, 4> getAlphas() const {
-    return std::array<double, 4>{alpha_dd_pos_, alpha_dd_neg_, alpha_ndd_diag_, alpha_ndd_off_};
+  std::array<double, 3> getAlphas() const {
+    return std::array<double, 3>{alpha_dd_pos_, alpha_dd_neg_, alpha_ndd_delta_};
   }
 
   bool adjustAlphaDd() const {
@@ -287,10 +287,10 @@ private:
   int initial_configuration_size_ = 0;
   double alpha_dd_pos_ = 0.501;
   double alpha_dd_neg_ = 0;
-  // 2x2 alpha block of the four-leg (band-off-diagonal) vertices: diagonal ~ G(0), off-diagonal ~
-  // the Hartree-Fock inter-band Green's function.
-  double alpha_ndd_diag_ = 0.5;
-  double alpha_ndd_off_ = 0.1;
+  // Four-leg (non density-density) vertices use the ALPS alpha table alpha[af_state][rank] =
+  // 0.5 +- delta.  delta is small: 1e-2 (ALPS delta_2, single-vertex updates) or 1e-4 (delta_3,
+  // paired updates with the submatrix walker).
+  double alpha_ndd_delta_ = 1e-4;
   double double_update_prob_ = 0;
   int max_submatrix_size_ = 32;
 };
@@ -301,8 +301,7 @@ int McSolverParameters<solver::CT_INT>::getBufferSize(const Concurrency& concurr
   buffer_size += concurrency.get_buffer_size(initial_configuration_size_);
   buffer_size += concurrency.get_buffer_size(alpha_dd_pos_);
   buffer_size += concurrency.get_buffer_size(alpha_dd_neg_);
-  buffer_size += concurrency.get_buffer_size(alpha_ndd_diag_);
-  buffer_size += concurrency.get_buffer_size(alpha_ndd_off_);
+  buffer_size += concurrency.get_buffer_size(alpha_ndd_delta_);
   buffer_size += concurrency.get_buffer_size(double_update_prob_);
   buffer_size += concurrency.get_buffer_size(max_submatrix_size_);
 
@@ -315,8 +314,7 @@ void McSolverParameters<solver::CT_INT>::pack(const Concurrency& concurrency, ch
   concurrency.pack(buffer, buffer_size, position, initial_configuration_size_);
   concurrency.pack(buffer, buffer_size, position, alpha_dd_pos_);
   concurrency.pack(buffer, buffer_size, position, alpha_dd_neg_);
-  concurrency.pack(buffer, buffer_size, position, alpha_ndd_diag_);
-  concurrency.pack(buffer, buffer_size, position, alpha_ndd_off_);
+  concurrency.pack(buffer, buffer_size, position, alpha_ndd_delta_);
   concurrency.pack(buffer, buffer_size, position, double_update_prob_);
   concurrency.pack(buffer, buffer_size, position, max_submatrix_size_);
 }
@@ -327,8 +325,7 @@ void McSolverParameters<solver::CT_INT>::unpack(const Concurrency& concurrency, 
   concurrency.unpack(buffer, buffer_size, position, initial_configuration_size_);
   concurrency.unpack(buffer, buffer_size, position, alpha_dd_pos_);
   concurrency.unpack(buffer, buffer_size, position, alpha_dd_neg_);
-  concurrency.unpack(buffer, buffer_size, position, alpha_ndd_diag_);
-  concurrency.unpack(buffer, buffer_size, position, alpha_ndd_off_);
+  concurrency.unpack(buffer, buffer_size, position, alpha_ndd_delta_);
   concurrency.unpack(buffer, buffer_size, position, double_update_prob_);
   concurrency.unpack(buffer, buffer_size, position, max_submatrix_size_);
 }
@@ -350,8 +347,7 @@ void McSolverParameters<solver::CT_INT>::readWrite(ReaderOrWriter& reader_or_wri
     tryToRead("initial-configuration-size", initial_configuration_size_);
     tryToRead("alpha-dd-pos", alpha_dd_pos_);
     tryToRead("alpha-dd-neg", alpha_dd_neg_);
-    tryToRead("alpha-ndd-diag", alpha_ndd_diag_);
-    tryToRead("alpha-ndd-off", alpha_ndd_off_);
+    tryToRead("alpha-ndd-delta", alpha_ndd_delta_);
     tryToRead("double-update-probability", double_update_prob_);
     tryToRead("max-submatrix-size", max_submatrix_size_);
     reader_or_writer.close_group();

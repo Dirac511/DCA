@@ -54,7 +54,7 @@ public:
 
   virtual ~DMatrixBuilder() {}
 
-  void setAlphas(const std::array<double, 4>& alphas_base, bool adjust_dd);
+  void setAlphas(const std::array<double, 3>& alphas_base, bool adjust_dd);
 
   void buildSQR(MatrixPair& S, MatrixPair& Q, MatrixPair& R, const SolverConfiguration& config) const;
 

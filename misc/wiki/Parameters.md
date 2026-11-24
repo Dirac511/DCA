@@ -507,8 +507,9 @@ Used if *CT-INT* (interaction expansion) is selected as the cluster solver.
 
 The parameters below control three different things: the **variance** of the estimator, the
 **average sign**, and **how strongly four-leg (exchange / pair-hopping) vertices enter the
-configuration**.  Only the variance is free of physical consequences; the other two trade statistical
-efficiency against the sampling of the band-off-diagonal interactions.
+configuration**.  Following ALPS/CT-INT, every vertex occupies one entry per spin sector: for a
+four-leg vertex it is the off-diagonal operator pair `(b_left, b_right)`, whose D element is the
+inter-band Green function minus the per-leg alpha.
 
 `"initial-configuration-size":` integer (0)  
 Number of random interaction vertices the walker is initialized with.  Only affects the warm-up
@@ -520,33 +521,24 @@ Decomposition parameters of the density-density vertices with positive / negativ
 change the variance (and the average sign slightly) but not the result.  `"alpha-dd-neg" = 0` is only
 safe when the model has no attractive coupling.
 
-`"alpha-ndd-diag":` double (0.5)  
-`"alpha-ndd-off":` double (0.1)  
-The 2x2 alpha block of the four-leg vertices: `alpha-ndd-diag` is subtracted from the diagonal of `D`
-(alpha_00 / alpha_11), `alpha-ndd-off` from the entries connecting the two legs of the same vertex
-(alpha_10 / alpha_01).  Physically they are of the order of the density matrix (~0.5) and of the
-Hartree-Fock inter-band Green's function (~0.1).
-
-`alpha-ndd-off` is the parameter that controls the four-leg vertices.  With `1e-4` the band-off-diagonal
-block of `D` is nearly singular, the vertices are barely inserted and the run reduces to
-density-density only (sign ~ 1, but full Kanamori is not sampled).  With `0.1` (default) they are
-sampled with a moderate sign penalty; with `0.2` there are about 40% more four-leg vertices but the
-sign drops from 0.70 to 0.16.  Changing `alpha-ndd-diag` between 0.2 and 0.5 changes the average order
-by less than 1% in the same setup: the two-leg coupling `alpha-ndd-off` is the parameter that matters,
-the diagonal one only regularizes the block.
+`"alpha-ndd-delta":` double (1.e-4)  
+ALPS alpha of the four-leg vertices: `alpha[af_state][rank] = 0.5 +- delta` for both ranks.  Use
+`1e-2` (ALPS `delta_2`) for single-vertex updates and `1e-4` (ALPS `delta_3`) for paired updates
+with the submatrix walker.  Do **not** use 0: the off-diagonal block of `D` vanishes, the four-leg
+vertices are never inserted, and the run degenerates to density-density only while the sign stays
+close to 1 (a false sign-free result).
 
 `"double-update-probability":` double (0.)  
-Probability to propose the second vertex of a pair (Bennett style update).  With `1.0` the four-leg
-vertices are always inserted in pairs, which improves the average sign (0.43 -> 0.70 in the setup
-above) at the price of ~10% fewer four-leg vertices.  A non-zero value is also required for the
-partner bookkeeping that the paired updates rely on.
+Probability to propose the second vertex of a pair (Bennett style update).  Four-leg vertices must be
+inserted in pairs: a single one is an artificial odd-order term whose weight vanishes without
+inter-band propagators.  Set it to `1.0` when the model has spin-flip / pair-hopping terms; with the
+submatrix walker this gives sign ~ 0.999 at J/U = 0.2 (measured), whereas `0` drops the sign to ~0.27.
 
 `"max-submatrix-size":` integer (32)  
-Batch size of the delayed updates. Only used by the submatrix walker
-(`-DDCA_USE_CTINT_SUBMATRIX=ON`); the default simple walker ignores it.  Note that the submatrix walker
-rejects four-leg interactions at construction time, so it can only be used for density-density models.
-Measured on La3Ni2O7 (4 orbitals, 8 ranks): at beta=8 (average order ~300) it is 2.3x faster than the
-simple walker with 64, while at beta <= 4 (order <= 160) it is about 5% slower.
+Batch size of the delayed updates. Only used by the submatrix walker, which is the default
+(`DCA_USE_CTINT_SUBMATRIX=ON`) and supports both density-density and four-leg vertices.  Measured on
+La3Ni2O7 (4 orbitals, 8 ranks): at beta=8 (average order ~300) it is 2.3x faster than the simple
+walker with 64, while at beta <= 4 (order <= 160) it is about 5% slower.
 
 **Autocorrelation.** `"sweeps-per-measurement"` lives in the `"Monte-Carlo-integration"` group.  One
 sweep of CT-INT is ⟨k⟩+1 single-vertex updates, so with the default `1.0` consecutive measurements are
@@ -564,8 +556,7 @@ rank aborts instead of reporting a zero error. `"STANDARD_DEVIATION"` is not sup
     "initial-configuration-size": 8,
     "alpha-dd-pos": 0.501,
     "alpha-dd-neg": 0.0,
-    "alpha-ndd-diag": 0.3,
-    "alpha-ndd-off": 0.1,
+    "alpha-ndd-delta": 1.0e-4,
     "double-update-probability": 1.0,
     "max-submatrix-size": 32
 }

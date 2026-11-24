@@ -27,7 +27,7 @@ DMatrixBuilder<CPU>::DMatrixBuilder(const G0Interpolation<CPU>& g0,
                                     const linalg::Matrix<int, linalg::CPU>& site_diff, const int nb)
     : g0_ref_(g0), n_bands_(nb), sbdm_step_{nb, nb * nb}, site_diff_(site_diff) {}
 
-void DMatrixBuilder<CPU>::setAlphas(const std::array<double, 4>& alphas_base, bool adjust_dd) {
+void DMatrixBuilder<CPU>::setAlphas(const std::array<double, 3>& alphas_base, bool adjust_dd) {
   alpha_dd_neg_ = alphas_base[1];
 
   const int r0 = site_diff_(0, 0);
@@ -98,7 +98,7 @@ double DMatrixBuilder<CPU>::computeAlpha(const int aux_spin_type, const int b) c
     case 2:
       return aux_spin_type < 0 ? (0.5 + alpha_dd_neg_) : (0.5 - alpha_dd_neg_);
     case 3:
-      // Four-leg vertices are handled by the 2x2 alpha block (alpha-ndd-diag / alpha-ndd-off) read
+      // Four-leg vertices are handled by the per-leg alpha (0.5 +- alpha-ndd-delta) read
       // in computeD, so this branch is not reached.
       return 0.;
     default:

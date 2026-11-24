@@ -148,7 +148,7 @@ public:
   template <linalg::DeviceType device_type>
   static void setDMatrixBuilder(const G0Interpolation<device_type>& g0);
 
-  static void setDMatrixAlpha(const std::array<double, 4>& alphas, bool adjust_dd);
+  static void setDMatrixAlpha(const std::array<double, 3>& alphas, bool adjust_dd);
 
   static void setInteractionVertices(Data& data, const Parameters& parameters);
 
@@ -364,7 +364,7 @@ void CtintWalkerBase<Parameters>::setDMatrixBuilder(
 }
 
 template <class Parameters>
-void CtintWalkerBase<Parameters>::setDMatrixAlpha(const std::array<double, 4>& alphas,
+void CtintWalkerBase<Parameters>::setDMatrixAlpha(const std::array<double, 3>& alphas,
                                                         bool adjust_dd) {
   assert(d_builder_ptr_);
   d_builder_ptr_->setAlphas(alphas, adjust_dd);
@@ -378,10 +378,10 @@ void CtintWalkerBase<Parameters>::setInteractionVertices(Data& data,
   vertices_.initializeFromHamiltonian(data.H_interactions);
   if (data.has_non_density_interactions()) {
     vertices_.checkForInterbandPropagators(data.G0_r_t_cluster_excluded);
-    // ALPS alpha table: alpha-ndd-diag is the rank-0 c^dag c and alpha-ndd-off the rank-1 one.
+    // ALPS alpha table: alpha[af_state][rank] = 0.5 +- alpha-ndd-delta for both ranks.
     const auto alphas = parameters.getAlphas();
     vertices_.initializeFromNonDensityHamiltonian(data.get_non_density_interactions(),
-                                                  {alphas[2], alphas[3]});
+                                                  {0.5 + alphas[2], 0.5 - alphas[2]});
   }
 }
 
