@@ -172,6 +172,7 @@ void InteractionVertices::initializeFromNonDensityHamiltonian(
     const func::function<double, func::dmn_variadic<Nu, Nu, Nu, Nu, Rdmn>>& H_int,
     std::array<double, 2> alpha_legs) {
   auto spin = [](unsigned short nu) { return nu >= Nu::dmn_size() / 2; };
+  auto band = [](unsigned short nu) { return nu % (Nu::dmn_size() / 2); };
   auto check_spins = [&](unsigned short nu1, unsigned short nu2, unsigned short nu3,
                          unsigned short nu4) -> bool {
     return spin(nu1) == spin(nu2) && spin(nu3) == spin(nu4);
@@ -191,9 +192,18 @@ void InteractionVertices::initializeFromNonDensityHamiltonian(
                   "operators have same spin."));
             for (unsigned short r1 = 0; r1 < Rdmn::dmn_size(); r1++) {
               const unsigned short r2 = Rdmn::parameter_type::subtract(delta_r, r1);
-              // ALPS alpha table: alpha[af_state][rank], rank 0/1 the two c^dag c of the vertex.
+              // Nomura et al., Eq. (39) and (40): the spin-flip vertices use
+              //   alpha_3 = (+s*delta, -s*delta)  (opposite signs on the two ranks),
+              // while the pair-hopping ones use
+              //   alpha_4 = (+s*delta, +s*delta)  (same sign on the two ranks).
+              // The two families are told apart by the band pattern: a spin-flip vertex has
+              // c^dag_{i} c_{j} c^dag_{j} c_{i} (band[0] == band[3]), a pair-hopping one has
+              // c^dag_{i} c_{j} c^dag_{i} c_{j} (band[0] == band[2]).
               InteractionElement elem{{r1, r1, r2, r2}, {nu1, nu2, nu3, nu4}, value};
-              elem.alpha = {{{alpha_legs[0], alpha_legs[1]}, {alpha_legs[0], alpha_legs[1]}}};
+              if (band(nu1) == band(nu4))
+                elem.alpha = {{{alpha_legs[0], alpha_legs[1]}, {alpha_legs[1], alpha_legs[0]}}};
+              else
+                elem.alpha = {{{alpha_legs[0], alpha_legs[0]}, {alpha_legs[1], alpha_legs[1]}}};
               insertElement(elem);
             }
           }

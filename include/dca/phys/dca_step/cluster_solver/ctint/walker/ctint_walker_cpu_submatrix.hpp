@@ -208,10 +208,10 @@ CtintWalkerSubmatrixCpu<Parameters, fix_rng_order>::CtintWalkerSubmatrixCpu(
 
       prob_const_[i][b] = prob_const_[-i][b] = -beta_ / (f_[i][b] - 1) / (f_[-i][b] - 1);
     }
-    // Four-leg vertices: ALPS alpha[af_state][rank] = 0.5 +- alpha-ndd-delta.  Type +3 is the
+    // Four-leg vertices: ALPS/Nomura alpha_3 = +-s*delta_3, centred at zero.  Type +3 is the
     // af_state 0 (+delta), type -3 the af_state 1 (-delta).
-    f_[3][b] = d_builder_ptr_->computeF(0.5 + alphas[2]);
-    f_[-3][b] = d_builder_ptr_->computeF(0.5 - alphas[2]);
+    f_[3][b] = d_builder_ptr_->computeF(+alphas[2]);
+    f_[-3][b] = d_builder_ptr_->computeF(-alphas[2]);
     prob_const_[3][b] = -beta_ / (f_[3][b] - 1) / (f_[3][b] - 1);
     prob_const_[-3][b] = -beta_ / (f_[-3][b] - 1) / (f_[-3][b] - 1);
     f_[0][b] = 1;

@@ -72,12 +72,14 @@ void MatrixConfiguration::addVertex(Vertex& v, unsigned config_id,
     // inter-band Green function G(b_left, b_right) minus the per-leg alpha.  Density-density legs
     // are band diagonal (b_left == b_right).
     {
+      // ALPS alpha[af_state][rank]: the auxiliary field state selects the row, not the spin sector.
+      const int af_state = v.aux_spin ? 1 : 0;
       Sector& sector = sectors_[s];
       v.spins[v.n_legs] = s;
       v.matrix_config_indices[v.n_legs] = sector.size();
       sector.entries_.emplace_back(details::SectorEntry{b_left, r[0 + 2 * leg], b_right,
                                                         r[1 + 2 * leg], v.tau, type, config_id,
-                                                        is_ndd ? v.alpha[s][leg] : 0.});
+                                                        is_ndd ? v.alpha[af_state][leg] : 0.});
       config_refs[s].emplace_back(config_id, v.n_legs);
       ++v.n_legs;
     }

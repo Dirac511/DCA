@@ -103,6 +103,11 @@ public:
     return sign_;
   }
 
+  // Sign of the configuration weight computed directly from the current configuration, i.e.
+  // (-1)^{#(w>0)} * prod_s sign det[G0 - alpha].  Independent of the sign accumulated by the
+  // Metropolis moves; used to validate the latter.
+  int weightSign() const;
+
   double acceptanceRatio() const {
     return double(n_accepted_) / double(n_steps_);
   }
@@ -293,6 +298,28 @@ void CtintWalkerBase<Parameters>::setMFromConfig() {
 }
 
 template <class Parameters>
+int CtintWalkerBase<Parameters>::weightSign() const {
+  int sgn = 1;
+  Matrix D;
+  for (int s = 0; s < 2; ++s) {
+    const auto& sector = configuration_.getSector(s);
+    const int n = sector.size();
+    if (!n)
+      continue;
+    D.resize(n);
+    for (int j = 0; j < n; ++j)
+      for (int i = 0; i < n; ++i)
+        D(i, j) = d_builder_ptr_->computeD(i, j, sector);
+    if (linalg::matrixop::inverseAndDeterminant(D) < 0)
+      sgn *= -1;
+  }
+  for (int i = 0; i < int(configuration_.size()); ++i)
+    if (configuration_.getStrength(i) > 0)
+      sgn *= -1;
+  return sgn;
+}
+
+template <class Parameters>
 void CtintWalkerBase<Parameters>::updateSweepAverages() {
   order_avg_.addSample(order());
   sign_avg_.addSample(sign_);
@@ -378,10 +405,11 @@ void CtintWalkerBase<Parameters>::setInteractionVertices(Data& data,
   vertices_.initializeFromHamiltonian(data.H_interactions);
   if (data.has_non_density_interactions()) {
     vertices_.checkForInterbandPropagators(data.G0_r_t_cluster_excluded);
-    // ALPS alpha table: alpha[af_state][rank] = 0.5 +- alpha-ndd-delta for both ranks.
+    // ALPS/Nomura alpha_3 / alpha_4: alpha = +-s*delta_3, i.e. centred at zero (Eq. 39, 40), not
+    // at 1/2 as the density-density alpha_1 of Eq. 30.
     const auto alphas = parameters.getAlphas();
     vertices_.initializeFromNonDensityHamiltonian(data.get_non_density_interactions(),
-                                                  {0.5 + alphas[2], 0.5 - alphas[2]});
+                                                  {+alphas[2], -alphas[2]});
   }
 }
 

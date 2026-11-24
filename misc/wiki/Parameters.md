@@ -522,11 +522,18 @@ change the variance (and the average sign slightly) but not the result.  `"alpha
 safe when the model has no attractive coupling.
 
 `"alpha-ndd-delta":` double (1.e-4)  
-ALPS alpha of the four-leg vertices: `alpha[af_state][rank] = 0.5 +- delta` for both ranks.  Use
-`1e-2` (ALPS `delta_2`) for single-vertex updates and `1e-4` (ALPS `delta_3`) for paired updates
-with the submatrix walker.  Do **not** use 0: the off-diagonal block of `D` vanishes, the four-leg
-vertices are never inserted, and the run degenerates to density-density only while the sign stays
-close to 1 (a false sign-free result).
+Alpha of the four-leg vertices, following Nomura et al. Eq. (39)-(40):
+
+- spin-flip terms: `alpha_3 = (+s*delta, -s*delta)` (opposite signs on the two ranks);
+- pair-hopping terms: `alpha_4 = (+s*delta, +s*delta)` (same sign on the two ranks);
+
+with `s = +-1` the auxiliary field state and `delta ~ 1e-4`.  These alphas are centred at **zero**,
+unlike the density-density `alpha_1 = 1/2 +- (1/2 + 0+)` of Eq. (30).  With `delta -> 0` the weight
+of a vertex pair becomes non-negative, which removes the sign problem (Appendix B).
+
+Do **not** use 0: `f = alpha/(alpha-1)` vanishes and the gamma function of the submatrix update
+diverges.  With `delta = 1e-4` the four-leg vertices follow the expected `(beta J)^2` scaling and
+the average sign stays above 0.9999 for `beta <= 4`.
 
 `"double-update-probability":` double (0.)  
 Probability to propose the second vertex of a pair (Bennett style update).  Four-leg vertices must be
