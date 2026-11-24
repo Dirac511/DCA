@@ -258,18 +258,19 @@ if (DCA_CLUSTER_SOLVER STREQUAL "CT-INT")
   set(DCA_CLUSTER_SOLVER_INCLUDE
     "dca/phys/dca_step/cluster_solver/ctint/ctint_cluster_solver.hpp")
 
-  # The current CT-INT port is CPU-only and the simple walker is the default.  The submatrix walker
-  # is opt-in: it rejects four-leg (non density-density) interactions at construction time, because
-  # its M = G0 * F - 1 transform degenerates for their band-off-diagonal legs and the average sign
-  # collapses.  Enable it explicitly for pure density-density models only.
-  set(DCA_USE_CTINT_SUBMATRIX OFF CACHE BOOL
-    "Use the CT-INT CPU submatrix walker if the CT-INT solver is selected (density-density models only).")
+  # The submatrix walker handles both density-density and four-leg (non density-density) vertices:
+  # four-leg legs get their f / prob_const from the diagonal part of the 2x2 alpha block, and the
+  # off-diagonal part enters D.  It is the default walker; switch it off for the simple walker.
+  # Note that the submatrix update is faster only at low temperature (beta >~ 8); at beta <= 4 it is
+  # about 5% slower than the simple walker.
+  set(DCA_USE_CTINT_SUBMATRIX ON CACHE BOOL
+    "Use the CT-INT CPU submatrix walker if the CT-INT solver is selected.")
   if (DCA_USE_CTINT_SUBMATRIX)
     set(DCA_CTINT_SUBMATRIX_FLAG true)
-    message(STATUS "CT-INT: submatrix walker enabled (density-density models only).")
+    message(STATUS "CT-INT: submatrix walker enabled (default).")
   else()
     set(DCA_CTINT_SUBMATRIX_FLAG false)
-    message(STATUS "CT-INT: simple walker (default).")
+    message(STATUS "CT-INT: simple walker.")
   endif()
   set(DCA_CLUSTER_SOLVER_TYPE
     "dca::phys::solver::CtintClusterSolver<dca::linalg::CPU, ParametersType, ${DCA_CTINT_SUBMATRIX_FLAG}>")
