@@ -86,8 +86,11 @@ double DMatrixBuilder<CPU>::computeD(const int i, const int j, const Sector& con
   }
 
   // The two legs of the same four-leg vertex are connected by the off-diagonal alpha (alpha_10 /
-  // alpha_01), which turns the band-off-diagonal coupling into a 2x2 block of D.
-  if (configuration.getVertexId(i) == configuration.getVertexId(j))
+  // alpha_01), which turns the band-off-diagonal coupling into a 2x2 block of D.  The check is
+  // restricted to four-leg legs: density-density vertices must not enter this branch.
+  if (std::abs(configuration.getAuxFieldType(i)) == 3 &&
+      std::abs(configuration.getAuxFieldType(j)) == 3 &&
+      configuration.getVertexId(i) == configuration.getVertexId(j))
     return g0_val - alpha_ndd_off_;
 
   return g0_val;

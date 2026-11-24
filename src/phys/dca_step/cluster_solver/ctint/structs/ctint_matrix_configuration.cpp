@@ -67,9 +67,10 @@ void MatrixConfiguration::addVertex(Vertex& v, unsigned config_id,
     const unsigned short b_right = band(nu[1 + 2 * leg]);
     const short type = field_type(v, leg);
 
-    // Density density: the leg is band diagonal, so it occupies one entry in the sector.
-    // Four-leg: the leg is band off-diagonal and is expanded into two band-diagonal legs; the two
-    // entries of the sector are connected by -w in D (see DMatrixBuilder::computeD).
+    // `is_ndd` marks non density-density (four-leg) vertices: their band-off-diagonal leg is
+    // expanded into two band-diagonal legs, whose mutual entries in D carry the off-diagonal part of
+    // the vertex's 2x2 alpha block (see DMatrixBuilder::computeD).  Density-density legs are band
+    // diagonal and occupy a single entry.
     const int n_sub = is_ndd ? 2 : 1;
     assert(!is_ndd || b_left != b_right);
     for (int sub = 0; sub < n_sub; ++sub) {
