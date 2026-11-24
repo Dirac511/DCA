@@ -67,19 +67,17 @@ void MatrixConfiguration::addVertex(Vertex& v, unsigned config_id,
     const unsigned short b_right = band(nu[1 + 2 * leg]);
     const short type = field_type(v, leg);
 
-    // `is_ndd` marks non density-density (four-leg) vertices: their band-off-diagonal leg is
-    // expanded into two band-diagonal legs, whose mutual entries in D carry the off-diagonal part of
-    // the vertex's 2x2 alpha block (see DMatrixBuilder::computeD).  Density-density legs are band
-    // diagonal and occupy a single entry.
-    const int n_sub = is_ndd ? 2 : 1;
-    assert(!is_ndd || b_left != b_right);
-    for (int sub = 0; sub < n_sub; ++sub) {
-      const unsigned short b = is_ndd ? (sub == 0 ? b_left : b_right) : b_left;
+    // Every vertex occupies a single entry per spin sector, as in ALPS/CT-INT: for a four-leg vertex
+    // the entry is the off-diagonal operator pair (b_left, b_right) and its D matrix element is the
+    // inter-band Green function G(b_left, b_right) minus the per-leg alpha.  Density-density legs
+    // are band diagonal (b_left == b_right).
+    {
       Sector& sector = sectors_[s];
       v.spins[v.n_legs] = s;
       v.matrix_config_indices[v.n_legs] = sector.size();
-      sector.entries_.emplace_back(details::SectorEntry{b, r[0 + 2 * leg], b, r[1 + 2 * leg], v.tau,
-                                                        type, config_id});
+      sector.entries_.emplace_back(details::SectorEntry{b_left, r[0 + 2 * leg], b_right,
+                                                        r[1 + 2 * leg], v.tau, type, config_id,
+                                                        is_ndd ? v.alpha[s][leg] : 0.});
       config_refs[s].emplace_back(config_id, v.n_legs);
       ++v.n_legs;
     }

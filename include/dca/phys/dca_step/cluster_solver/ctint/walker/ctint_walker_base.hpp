@@ -378,10 +378,10 @@ void CtintWalkerBase<Parameters>::setInteractionVertices(Data& data,
   vertices_.initializeFromHamiltonian(data.H_interactions);
   if (data.has_non_density_interactions()) {
     vertices_.checkForInterbandPropagators(data.G0_r_t_cluster_excluded);
-    vertices_.initializeFromNonDensityHamiltonian(data.get_non_density_interactions());
-    // Four-leg vertices are supported by the simple CPU walker only: each band-off-diagonal leg is
-    // expanded into two band-diagonal legs and the coupling enters the off-diagonal entries of D.
-    // The submatrix walker still rejects them.
+    // ALPS alpha table: alpha-ndd-diag is the rank-0 c^dag c and alpha-ndd-off the rank-1 one.
+    const auto alphas = parameters.getAlphas();
+    vertices_.initializeFromNonDensityHamiltonian(data.get_non_density_interactions(),
+                                                  {alphas[2], alphas[3]});
   }
 }
 

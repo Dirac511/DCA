@@ -76,6 +76,11 @@ public:
     return entries_[i].vertex_id_;
   }
 
+  // Alpha of the i-th leg (ALPS: alpha[af_state][rank]).
+  inline double getAlpha(int i) const {
+    return entries_[i].alpha_;
+  }
+
   bool operator==(const Sector& rhs) const {
     return entries_ == rhs.entries_;
   }

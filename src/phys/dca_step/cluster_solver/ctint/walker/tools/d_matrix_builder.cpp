@@ -29,8 +29,6 @@ DMatrixBuilder<CPU>::DMatrixBuilder(const G0Interpolation<CPU>& g0,
 
 void DMatrixBuilder<CPU>::setAlphas(const std::array<double, 4>& alphas_base, bool adjust_dd) {
   alpha_dd_neg_ = alphas_base[1];
-  alpha_ndd_diag_ = alphas_base[2];
-  alpha_ndd_off_ = alphas_base[3];
 
   const int r0 = site_diff_(0, 0);
   alpha_dd_.resize(n_bands_);
@@ -78,20 +76,12 @@ double DMatrixBuilder<CPU>::computeD(const int i, const int j, const Sector& con
   const double g0_val = g0_ref_(delta_tau, p_index);
   if (i == j) {
     const short type = configuration.getAuxFieldType(i);
-    // Four-leg vertices occupy two band-diagonal legs in the sector; each leg carries the diagonal
-    // part of the vertex's 2x2 alpha block (alpha_00 / alpha_11).
+    // Four-leg vertices occupy two band-diagonal legs in the sector; each leg carries its own alpha
+    // (ALPS: alpha[af_state][rank], rank = leg).
     if (std::abs(type) == 3)
-      return g0_val - alpha_ndd_diag_;
+      return g0_val - configuration.getAlpha(i);
     return g0_val - computeAlpha(type, b1);
   }
-
-  // The two legs of the same four-leg vertex are connected by the off-diagonal alpha (alpha_10 /
-  // alpha_01), which turns the band-off-diagonal coupling into a 2x2 block of D.  The check is
-  // restricted to four-leg legs: density-density vertices must not enter this branch.
-  if (std::abs(configuration.getAuxFieldType(i)) == 3 &&
-      std::abs(configuration.getAuxFieldType(j)) == 3 &&
-      configuration.getVertexId(i) == configuration.getVertexId(j))
-    return g0_val - alpha_ndd_off_;
 
   return g0_val;
 }

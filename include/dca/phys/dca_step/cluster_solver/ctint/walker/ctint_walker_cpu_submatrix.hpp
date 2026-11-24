@@ -78,8 +78,8 @@ private:
 
   // Per-vertex alpha-trick quantities, tabulated by auxiliary field type and band:
   // f_ = alpha / (alpha - 1) and prob_const_ = -beta / (f - 1) / (f' - 1), with f' the entry of the
-  // opposite field type.  Only density-density vertices reach this walker (the constructor rejects
-  // four-leg interactions), so only the types +-1 and +-2 are tabulated.
+  // opposite field type.  Types +-1/+-2 are density density; types +-3 are four-leg, whose legs
+  // carry the per-vertex alpha of the sector entry (alpha-ndd-diag / alpha-ndd-off).
   double vertexF(int s, int idx, bool use_left_band) const;
   double typeF(int s, int idx, int type) const;
   double typeGamma(int s, int idx, int from_type, int to_type) const;
@@ -208,11 +208,12 @@ CtintWalkerSubmatrixCpu<Parameters, fix_rng_order>::CtintWalkerSubmatrixCpu(
 
       prob_const_[i][b] = prob_const_[-i][b] = -beta_ / (f_[i][b] - 1) / (f_[-i][b] - 1);
     }
-    // Four-leg vertices: both legs of a sector carry the diagonal part of the vertex's 2x2 alpha
-    // block (alpha_00 / alpha_11 are both given by alpha-ndd-diag); the off-diagonal part only
-    // enters D (see DMatrixBuilder::computeD), not the F transform.
-    f_[3][b] = f_[-3][b] = d_builder_ptr_->computeF(alphas[2]);
-    prob_const_[3][b] = prob_const_[-3][b] = -beta_ / (f_[3][b] - 1) / (f_[3][b] - 1);
+    // Four-leg vertices: each leg of a sector carries its own alpha (ALPS: alpha[af_state][rank]).
+    // Leg 0 (type +3) uses alpha-ndd-diag, leg 1 (type -3) uses alpha-ndd-off.
+    f_[3][b] = d_builder_ptr_->computeF(alphas[2]);
+    f_[-3][b] = d_builder_ptr_->computeF(alphas[3]);
+    prob_const_[3][b] = -beta_ / (f_[3][b] - 1) / (f_[3][b] - 1);
+    prob_const_[-3][b] = -beta_ / (f_[-3][b] - 1) / (f_[-3][b] - 1);
     f_[0][b] = 1;
   }
 

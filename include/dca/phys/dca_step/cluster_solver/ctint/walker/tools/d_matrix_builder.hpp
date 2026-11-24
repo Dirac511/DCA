@@ -84,11 +84,8 @@ protected:
   const G0Interpolation<linalg::CPU>& g0_ref_;
   std::vector<double> alpha_dd_;
   double alpha_dd_neg_ = 0;
-  // 2x2 alpha block of the four-leg (band-off-diagonal) vertices: the diagonal entries
-  // (alpha_00 / alpha_11) are subtracted from the diagonal of D and the off-diagonal ones
-  // (alpha_10 / alpha_01) from the entries connecting the two legs of the same vertex.
-  double alpha_ndd_diag_ = 0.5;
-  double alpha_ndd_off_ = 0.1;
+  // Four-leg alpha is stored per leg in SectorEntry (see CtintMatrixConfiguration::addVertex), so no
+  // global copy is kept here.
   const int n_bands_ = -1;
   std::array<int, 2> sbdm_step_;
   // Note: site_diff is a matrix where site_diff(i,j) = r_j - r_i.

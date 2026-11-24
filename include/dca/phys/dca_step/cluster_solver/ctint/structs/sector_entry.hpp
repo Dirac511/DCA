@@ -53,9 +53,11 @@ struct SectorEntry {
   unsigned short r_right_;
   double tau_;
   short aux_field_type_;
-  // Index of the owning interaction vertex.  It identifies the two legs that belong to the same
-  // four-leg vertex, whose mutual D entries carry the off-diagonal alpha (alpha_10 / alpha_01).
+  // Index of the owning interaction vertex.
   unsigned vertex_id_ = 0;
+  // Alpha of this leg (ALPS: alpha[af_state][rank]).  Leg 0 and leg 1 of a four-leg vertex carry
+  // their own values; density-density legs use zero here and get their alpha from computeAlpha.
+  double alpha_ = 0.;
 };
 
 }  // namespace details

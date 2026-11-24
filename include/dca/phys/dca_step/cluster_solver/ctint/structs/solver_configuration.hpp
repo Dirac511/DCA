@@ -151,12 +151,14 @@ void SolverConfiguration::insertRandom(Rng& rng) {
   const bool aux_spin = rng() > 0.5;
 
   Vertex v(aux_spin, indices.first, current_tag_++, tau);
+  v.alpha = (*H_int_)[indices.first].alpha;
   push_back(v);
 
   if (indices.second != -1) {
     const double tau2 = rng() * max_tau_;
     const bool aux_spin2 = rng() > 0.5;
     Vertex v2(aux_spin2, indices.second, current_tag_++, tau2);
+    v2.alpha = (*H_int_)[indices.second].alpha;
     push_back(v2);
     last_insertion_size_ = 2;
   }

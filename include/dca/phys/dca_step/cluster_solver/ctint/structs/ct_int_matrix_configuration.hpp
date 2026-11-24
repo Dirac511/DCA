@@ -49,6 +49,10 @@ struct Vertex {
   std::array<unsigned, 4> matrix_config_indices;
   std::uint8_t n_legs = 2;
 
+  // Per-vertex alpha table copied from the interaction element (ALPS: alpha[af_state][rank]).
+  // Density-density vertices leave it at zero and use computeAlpha instead.
+  std::array<std::array<double, 2>, 2> alpha = {{{0., 0.}, {0., 0.}}};
+
   // Marks if this vertex is part of the accepted configuration.
   bool annihilatable = false;
 

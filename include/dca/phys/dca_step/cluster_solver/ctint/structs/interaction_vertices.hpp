@@ -33,6 +33,10 @@ struct InteractionElement {
   std::array<unsigned short, 4> r;
   std::array<unsigned short, 4> nu;
   double w;
+  // Per-vertex alpha table, following ALPS/CT-INT: alpha[af_state][rank] with rank = 0,1 the two
+  // c^dag c of the vertex and af_state = 0,1 the auxiliary-field state.  It replaces the global
+  // alpha-ndd-diag / alpha-ndd-off pair for four-leg (non density-density) effects.
+  std::array<std::array<double, 2>, 2> alpha = {{{0., 0.}, {0., 0.}}};
   // TODO: write proper constructor.
   std::vector<unsigned short> partners_id = std::vector<unsigned short>();
   // Returns true if r and nu members are equal.
@@ -50,7 +54,8 @@ public:
   void initializeFromHamiltonian(const func::function<double, func::dmn_variadic<Nu, Nu, Rdmn>>& H_int);
   template <class Nu, class Rdmn>
   void initializeFromNonDensityHamiltonian(
-      const func::function<double, func::dmn_variadic<Nu, Nu, Nu, Nu, Rdmn>>& H_int);
+      const func::function<double, func::dmn_variadic<Nu, Nu, Nu, Nu, Rdmn>>& H_int,
+      std::array<double, 2> alpha_legs);
 
   void insertElement(InteractionElement v);
 
@@ -164,7 +169,8 @@ void InteractionVertices::initializeFromHamiltonian(
 
 template <class Nu, class Rdmn>
 void InteractionVertices::initializeFromNonDensityHamiltonian(
-    const func::function<double, func::dmn_variadic<Nu, Nu, Nu, Nu, Rdmn>>& H_int) {
+    const func::function<double, func::dmn_variadic<Nu, Nu, Nu, Nu, Rdmn>>& H_int,
+    std::array<double, 2> alpha_legs) {
   auto spin = [](unsigned short nu) { return nu >= Nu::dmn_size() / 2; };
   auto check_spins = [&](unsigned short nu1, unsigned short nu2, unsigned short nu3,
                          unsigned short nu4) -> bool {
@@ -185,7 +191,10 @@ void InteractionVertices::initializeFromNonDensityHamiltonian(
                   "operators have same spin."));
             for (unsigned short r1 = 0; r1 < Rdmn::dmn_size(); r1++) {
               const unsigned short r2 = Rdmn::parameter_type::subtract(delta_r, r1);
-              insertElement(InteractionElement{{r1, r1, r2, r2}, {nu1, nu2, nu3, nu4}, value});
+              // ALPS alpha table: alpha[af_state][rank], rank 0/1 the two c^dag c of the vertex.
+              InteractionElement elem{{r1, r1, r2, r2}, {nu1, nu2, nu3, nu4}, value};
+              elem.alpha = {{{alpha_legs[0], alpha_legs[1]}, {alpha_legs[0], alpha_legs[1]}}};
+              insertElement(elem);
             }
           }
 }
