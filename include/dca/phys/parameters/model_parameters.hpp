@@ -31,6 +31,7 @@
 #include "dca/phys/models/analytic_hamiltonians/singleband_chain.hpp"
 #include "dca/phys/models/analytic_hamiltonians/threeband_hubbard.hpp"
 #include "dca/phys/models/analytic_hamiltonians/bilayer_kanamori.hpp"
+#include "dca/phys/models/analytic_hamiltonians/kanamori_lattice.hpp"
 #include "dca/phys/models/analytic_hamiltonians/bilayer_threeband.hpp"
 #include "dca/phys/models/analytic_hamiltonians/dpsNi_model.hpp"
 #include "dca/phys/models/analytic_hamiltonians/ddp_model.hpp"
