@@ -76,8 +76,9 @@ double DMatrixBuilder<CPU>::computeD(const int i, const int j, const Sector& con
   const double g0_val = g0_ref_(delta_tau, p_index);
   if (i == j) {
     const short type = configuration.getAuxFieldType(i);
-    // Four-leg vertices occupy two band-diagonal legs in the sector; each leg carries its own alpha
-    // (ALPS: alpha[af_state][rank], rank = leg).
+    // A four-leg leg is a band-off-diagonal operator pair (b_left != b_right); its D element is the
+    // inter-band Green function minus the alpha stored in the sector entry (ALPS:
+    // alpha[af_state][rank], with rank the leg index).
     if (std::abs(type) == 3)
       return g0_val - configuration.getAlpha(i);
     return g0_val - computeAlpha(type, b1);

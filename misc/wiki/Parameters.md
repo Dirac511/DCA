@@ -522,14 +522,19 @@ change the variance (and the average sign slightly) but not the result.  `"alpha
 safe when the model has no attractive coupling.
 
 `"alpha-ndd-delta":` double (1.e-4)  
-Alpha of the four-leg vertices, following Nomura et al. Eq. (39)-(40):
+Alpha of the four-leg vertices, following Nomura et al. Eq. (31), (39) and (40):
 
-- spin-flip terms: `alpha_3 = (+s*delta, -s*delta)` (opposite signs on the two ranks);
-- pair-hopping terms: `alpha_4 = (+s*delta, +s*delta)` (same sign on the two ranks);
+- `alpha_2` (Eq. 31, **single-vertex** update): `(+s*delta, -s*delta)` for both spin-flip and
+  pair-hopping;
+- `alpha_3` (Eq. 39, spin-flip, **paired** update): `(+s*delta, -s*delta)` (opposite signs on the
+  two ranks);
+- `alpha_4` (Eq. 40, pair-hopping, **paired** update): `(+s*delta, +s*delta)` (same sign on the
+  two ranks).
 
-with `s = +-1` the auxiliary field state and `delta ~ 1e-4`.  These alphas are centred at **zero**,
-unlike the density-density `alpha_1 = 1/2 +- (1/2 + 0+)` of Eq. (30).  With `delta -> 0` the weight
-of a vertex pair becomes non-negative, which removes the sign problem (Appendix B).
+`double-update-probability = 1` selects the paired alphas `alpha_3 / alpha_4`; with `0` every
+four-leg vertex uses `alpha_2`.  All of them are centred at **zero**, unlike the density-density
+`alpha_1 = 1/2 +- (1/2 + 0+)` of Eq. (30).  With `delta -> 0` the weight of a vertex pair becomes
+non-negative, which removes the sign problem (Appendix B).
 
 Do **not** use 0: `f = alpha/(alpha-1)` vanishes and the gamma function of the submatrix update
 diverges.  With `delta = 1e-4` the four-leg vertices follow the expected `(beta J)^2` scaling and
@@ -538,8 +543,10 @@ the average sign stays above 0.9999 for `beta <= 4`.
 `"double-update-probability":` double (0.)  
 Probability to propose the second vertex of a pair (Bennett style update).  Four-leg vertices must be
 inserted in pairs: a single one is an artificial odd-order term whose weight vanishes without
-inter-band propagators.  Set it to `1.0` when the model has spin-flip / pair-hopping terms; with the
-submatrix walker this gives sign ~ 0.999 at J/U = 0.2 (measured), whereas `0` drops the sign to ~0.27.
+inter-band propagators.  Set it to `1.0` when the model has spin-flip / pair-hopping terms; this
+selects the paired alphas `alpha_3 / alpha_4` and gives sign ~ 0.999 at J/U = 0.2 (measured).  With
+`0` the single-vertex `alpha_2` is used and the sign degrades: measured 0.918 at `delta = 0.05`
+and 0.687 at `delta = 0.1` for `beta = 10`.
 
 `"max-submatrix-size":` integer (32)  
 Batch size of the delayed updates. Only used by the submatrix walker, which is the default

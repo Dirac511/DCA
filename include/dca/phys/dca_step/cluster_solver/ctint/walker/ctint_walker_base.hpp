@@ -405,11 +405,14 @@ void CtintWalkerBase<Parameters>::setInteractionVertices(Data& data,
   vertices_.initializeFromHamiltonian(data.H_interactions);
   if (data.has_non_density_interactions()) {
     vertices_.checkForInterbandPropagators(data.G0_r_t_cluster_excluded);
-    // ALPS/Nomura alpha_3 / alpha_4: alpha = +-s*delta_3, i.e. centred at zero (Eq. 39, 40), not
-    // at 1/2 as the density-density alpha_1 of Eq. 30.
+    // ALPS/Nomura alpha_2 / alpha_3 / alpha_4: alpha = +-s*delta, i.e. centred at zero (Eq. 31,
+    // 39, 40), not at 1/2 as the density-density alpha_1 of Eq. 30.  The paired update uses
+    // alpha_3 / alpha_4 (spin-flip / pair-hopping differ), the single-vertex update uses alpha_2
+    // for both families.
     const auto alphas = parameters.getAlphas();
+    const bool paired = parameters.getDoubleUpdateProbability() == 1.0;
     vertices_.initializeFromNonDensityHamiltonian(data.get_non_density_interactions(),
-                                                  {+alphas[2], -alphas[2]});
+                                                  {+alphas[2], -alphas[2]}, paired);
   }
 }
 

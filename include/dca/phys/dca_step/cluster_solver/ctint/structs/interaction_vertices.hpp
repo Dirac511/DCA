@@ -34,8 +34,9 @@ struct InteractionElement {
   std::array<unsigned short, 4> nu;
   double w;
   // Per-vertex alpha table, following ALPS/CT-INT: alpha[af_state][rank] with rank = 0,1 the two
-  // c^dag c of the vertex and af_state = 0,1 the auxiliary-field state.  It replaces the global
-  // alpha-ndd-delta (alpha = 0.5 +- delta) for four-leg (non density-density) effects.
+  // c^dag c of the vertex and af_state = 0,1 the auxiliary-field state.  For the four-leg
+  // (non density-density) vertices it holds Nomura's alpha_2 / alpha_3 / alpha_4, all of the form
+  // +-s*delta, i.e. centred at zero and controlled by alpha-ndd-delta.
   std::array<std::array<double, 2>, 2> alpha = {{{0., 0.}, {0., 0.}}};
   // TODO: write proper constructor.
   std::vector<unsigned short> partners_id = std::vector<unsigned short>();
@@ -55,7 +56,7 @@ public:
   template <class Nu, class Rdmn>
   void initializeFromNonDensityHamiltonian(
       const func::function<double, func::dmn_variadic<Nu, Nu, Nu, Nu, Rdmn>>& H_int,
-      std::array<double, 2> alpha_legs);
+      std::array<double, 2> alpha_legs, bool paired = true);
 
   void insertElement(InteractionElement v);
 
@@ -170,7 +171,7 @@ void InteractionVertices::initializeFromHamiltonian(
 template <class Nu, class Rdmn>
 void InteractionVertices::initializeFromNonDensityHamiltonian(
     const func::function<double, func::dmn_variadic<Nu, Nu, Nu, Nu, Rdmn>>& H_int,
-    std::array<double, 2> alpha_legs) {
+    std::array<double, 2> alpha_legs, bool paired) {
   auto spin = [](unsigned short nu) { return nu >= Nu::dmn_size() / 2; };
   auto band = [](unsigned short nu) { return nu % (Nu::dmn_size() / 2); };
   auto check_spins = [&](unsigned short nu1, unsigned short nu2, unsigned short nu3,
@@ -192,15 +193,15 @@ void InteractionVertices::initializeFromNonDensityHamiltonian(
                   "operators have same spin."));
             for (unsigned short r1 = 0; r1 < Rdmn::dmn_size(); r1++) {
               const unsigned short r2 = Rdmn::parameter_type::subtract(delta_r, r1);
-              // Nomura et al., Eq. (39) and (40): the spin-flip vertices use
-              //   alpha_3 = (+s*delta, -s*delta)  (opposite signs on the two ranks),
-              // while the pair-hopping ones use
-              //   alpha_4 = (+s*delta, +s*delta)  (same sign on the two ranks).
+              // Nomura et al. use three different alpha tables for the four-leg vertices:
+              //   alpha_2 (Eq. 31, single-vertex update):  (+s*d, -s*d), same for both families;
+              //   alpha_3 (Eq. 39, spin-flip, paired):      (+s*d, -s*d);
+              //   alpha_4 (Eq. 40, pair-hopping, paired):   (+s*d, +s*d).
               // The two families are told apart by the band pattern: a spin-flip vertex has
               // c^dag_{i} c_{j} c^dag_{j} c_{i} (band[0] == band[3]), a pair-hopping one has
               // c^dag_{i} c_{j} c^dag_{i} c_{j} (band[0] == band[2]).
               InteractionElement elem{{r1, r1, r2, r2}, {nu1, nu2, nu3, nu4}, value};
-              if (band(nu1) == band(nu4))
+              if (!paired || band(nu1) == band(nu4))
                 elem.alpha = {{{alpha_legs[0], alpha_legs[1]}, {alpha_legs[1], alpha_legs[0]}}};
               else
                 elem.alpha = {{{alpha_legs[0], alpha_legs[0]}, {alpha_legs[1], alpha_legs[1]}}};

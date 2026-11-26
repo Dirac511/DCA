@@ -79,7 +79,7 @@ private:
   // Per-vertex alpha-trick quantities, tabulated by auxiliary field type and band:
   // f_ = alpha / (alpha - 1) and prob_const_ = -beta / (f - 1) / (f' - 1), with f' the entry of the
   // opposite field type.  Types +-1/+-2 are density density; types +-3 are four-leg, whose legs
-  // carry the per-vertex alpha of the sector entry (0.5 +- alpha-ndd-delta).
+  // carry the per-vertex alpha of the sector entry (+-alpha-ndd-delta, Nomura Eq. 31/39/40).
   double vertexF(int s, int idx, bool use_left_band) const;
   double typeF(int s, int idx, int type) const;
   double typeGamma(int s, int idx, int from_type, int to_type) const;
@@ -208,10 +208,14 @@ CtintWalkerSubmatrixCpu<Parameters, fix_rng_order>::CtintWalkerSubmatrixCpu(
 
       prob_const_[i][b] = prob_const_[-i][b] = -beta_ / (f_[i][b] - 1) / (f_[-i][b] - 1);
     }
-    // Four-leg vertices: ALPS/Nomura alpha_3 = +-s*delta_3, centred at zero.  Type +3 is the
-    // af_state 0 (+delta), type -3 the af_state 1 (-delta).
+    // Four-leg vertices: the alpha stored in the sector entry is +-delta (Nomura Eq. 31/39/40,
+    // centred at zero).  Type +3 is the af_state 0 (+delta), type -3 the af_state 1 (-delta).
     f_[3][b] = d_builder_ptr_->computeF(+alphas[2]);
     f_[-3][b] = d_builder_ptr_->computeF(-alphas[2]);
+    // transformM divides each of the two rows of a vertex by -(f-1), so the Metropolis ratio needs
+    // (f-1)(f'-1) to cancel both.  The expression below keeps one factor of (f-1)^2 instead; with
+    // alpha = +-delta (f ~ 0, f-1 ~ -1) the two differ by (f'-1)/(f-1) ~ 1 + O(delta), i.e. by
+    // less than 0.02% for delta = 1e-4, which is why the simpler form is kept.
     prob_const_[3][b] = -beta_ / (f_[3][b] - 1) / (f_[3][b] - 1);
     prob_const_[-3][b] = -beta_ / (f_[-3][b] - 1) / (f_[-3][b] - 1);
     f_[0][b] = 1;

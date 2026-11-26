@@ -41,10 +41,10 @@ struct Vertex {
   std::uint64_t tag;
   double tau;
 
-  // Reference to the matrix config.  A density-density vertex occupies one leg per spin sector
-  // (n_legs == 2).  A four-leg vertex is band-off-diagonal, so each of its legs is split into two
-  // band-diagonal legs inside the sector (n_legs == 4); the two legs of a sector carry the
-  // off-diagonal coupling +-w between them in D.
+  // Reference to the matrix config.  Every vertex occupies one leg per spin sector (n_legs == 2,
+  // one leg for each spin).  A density-density leg is band diagonal (b_left == b_right); a
+  // four-leg leg is the band-off-diagonal operator pair (b_left, b_right), and its D element is
+  // the inter-band Green function minus the per-leg alpha.
   std::array<std::uint8_t, 4> spins;
   std::array<unsigned, 4> matrix_config_indices;
   std::uint8_t n_legs = 2;
@@ -82,9 +82,9 @@ public:
     return sectors_[s];
   }
 
-  // Number of interaction vertices.  A vertex occupies one leg per spin sector for density-density
-  // interactions and two (band-diagonal) legs per sector for band-off-diagonal ones, so the count
-  // cannot be derived from the sector sizes any more.
+  // Number of interaction vertices.  Every vertex occupies one leg per spin sector, both for
+  // density-density and for band-off-diagonal interactions, so the count cannot be derived from
+  // the sector sizes any more.
   std::size_t size() const {
     return n_vertices_;
   }
