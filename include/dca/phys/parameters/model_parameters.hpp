@@ -81,6 +81,9 @@ class ModelParameters {};
 // Specialization for the bilayer two-orbital Kanamori-Hubbard model
 #include "model_parameters_bilayer_kanamori.inc"
 
+// Specialization for the single-layer two-orbital Kanamori-Hubbard model
+#include "model_parameters_kanamori.inc"
+
 // Specialization for single-band Hubbard model
 #include "model_parameters_single_band_hubbard.inc"
 

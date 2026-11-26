@@ -31,6 +31,12 @@ struct has_non_density_interaction<BilayerKanamori<PointGroup>> {
   constexpr static bool value = true;
 };
 
+#include "dca/phys/models/analytic_hamiltonians/kanamori_lattice.hpp"
+template <class PointGroup>
+struct has_non_density_interaction<KanamoriLattice<PointGroup>> {
+  constexpr static bool value = true;
+};
+
 template <class Lattice, class HType, class Parameters>
 std::enable_if_t<has_non_density_interaction<Lattice>::value, void> initializeNonDensityInteraction(
     HType& interaction, const Parameters& pars) {
